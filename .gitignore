@@ -66,6 +66,12 @@ coverage/
 *.mobileprovision   # provisioning profiles
 *.jks               # Android keystores
 
+# Built release binaries downloaded from CI. Not sensitive but heavy —
+# repo shouldn't carry them. The Android build workflow uploads them as
+# GH Actions artifacts, which is where they belong.
+artefacts/
+artifacts/
+
 # credentials/ — release keystore + SECRETS.txt live here locally
 # NOTE: SECRETS.txt.example is intentionally EXCLUDED from tracking
 # (it's easy to accidentally paste real values into it — see
