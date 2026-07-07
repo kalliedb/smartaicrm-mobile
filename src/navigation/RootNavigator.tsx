@@ -5,10 +5,11 @@
  * On launch:
  *   1. useAuth.boot() reads the keystore (bootLoading=true).
  *   2. Spinner renders while we wait.
- *   3. Token present → AppStack; otherwise AuthStack.
+ *   3. Token present → App stack (CasesList → CaseDetail); else Login.
  *
- * Future sprints add deep-link handling, biometric re-auth, and a
- * push-notification permission prompt.
+ * FIELD-2 replaced the placeholder Home screen with CasesList/CaseDetail.
+ * Future sprints add ChatScreen, offline-queue banner, and deep-link
+ * handling.
  */
 import { useEffect } from 'react'
 import { ActivityIndicator, View, StyleSheet } from 'react-native'
@@ -16,12 +17,14 @@ import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useAuth } from '@store/auth'
 import LoginScreen from '@screens/Auth/LoginScreen'
-import HomeScreen from '@screens/Home/HomeScreen'
+import CasesListScreen from '@screens/Cases/CasesListScreen'
+import CaseDetailScreen from '@screens/Cases/CaseDetailScreen'
 import { colors } from '@theme/index'
 
 export type RootStackParamList = {
   Login: undefined
-  Home: undefined
+  Cases: undefined
+  CaseDetail: { caseId: string }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -43,11 +46,28 @@ export default function RootNavigator() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.primary,
+          headerTitleStyle: { color: colors.text },
+        }}
+      >
         {user ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
+          <>
+            <Stack.Screen
+              name="Cases"
+              component={CasesListScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="CaseDetail"
+              component={CaseDetailScreen}
+              options={{ title: 'Case', headerBackTitle: 'Cases' }}
+            />
+          </>
         ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
         )}
       </Stack.Navigator>
     </NavigationContainer>
