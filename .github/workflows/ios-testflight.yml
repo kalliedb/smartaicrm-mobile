@@ -1,11 +1,15 @@
 name: iOS TestFlight
 
-# Cut a TestFlight build by pushing a tag like v0.1.0-tf1:
+# Cut a TestFlight build by pushing a tag with a `-tf` suffix, e.g.:
 #   git tag v0.1.0-tf1 && git push origin v0.1.0-tf1
+#
+# Android-only tags (v0.1.0-a1, v0.1.0-android1, etc.) do NOT fire this
+# workflow — that lets you ship Android before iOS signing secrets exist.
+# Change the pattern back to `v*` once the iOS signing bundle is set up.
 on:
   push:
     tags:
-      - "v*"
+      - "v*-tf*"
   workflow_dispatch: {}
 
 jobs:
