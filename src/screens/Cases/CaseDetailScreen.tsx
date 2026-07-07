@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, SafeAreaView,
+  ActivityIndicator, Alert, SafeAreaView, Image,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import * as Location from 'expo-location'
@@ -18,6 +18,8 @@ import {
   casesApi, allowedNextStatuses,
   type ServiceCase, type ServiceCaseStatus,
 } from '@api/cases'
+import { usePhotoAttach } from '@hooks/usePhotoAttach'
+import SignatureModal from './SignatureModal'
 import { colors, spacing, radii, typography } from '@theme/index'
 import type { RootStackParamList } from '@navigation/RootNavigator'
 
@@ -59,6 +61,8 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true)
   const [transitioning, setTransitioning] = useState<ServiceCaseStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [signatureOpen, setSignatureOpen] = useState(false)
+  const photos = usePhotoAttach({ caseId })
 
   const load = useCallback(async () => {
     setError(null)
@@ -154,6 +158,66 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           </Section>
         )}
 
+        {/* Photos */}
+        <Section title="Photos">
+          {photos.uploaded.length > 0 ? (
+            <View style={styles.photoGrid}>
+              {photos.uploaded.map(p => (
+                <View key={p.id} style={styles.photoThumb}>
+                  {/* stub:// URIs are placeholders — no preview possible until
+                     real cloud storage lands (backlog task #48). Show a chip. */}
+                  {p.fileUrl.startsWith('http') ? (
+                    <Image source={{ uri: p.fileUrl }} style={styles.photoImg} />
+                  ) : (
+                    <View style={styles.photoStub}>
+                      <Text style={styles.photoStubText}>uploaded</Text>
+                    </View>
+                  )}
+                  <Text style={styles.photoName} numberOfLines={1}>{p.name}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.hint}>No photos yet.</Text>
+          )}
+          {photos.error && <Text style={styles.errorInline}>{photos.error}</Text>}
+          <View style={styles.rowBtns}>
+            <TouchableOpacity
+              style={[styles.sectionBtn, photos.uploading && styles.btnBusy]}
+              onPress={() => void photos.pickFromCamera()}
+              disabled={photos.uploading}
+            >
+              <Text style={styles.sectionBtnText}>
+                {photos.uploading ? 'Uploading…' : 'Take photo'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sectionBtnGhost, photos.uploading && styles.btnBusy]}
+              onPress={() => void photos.pickFromLibrary()}
+              disabled={photos.uploading}
+            >
+              <Text style={styles.sectionBtnGhostText}>Pick from gallery</Text>
+            </TouchableOpacity>
+          </View>
+        </Section>
+
+        {/* Signature */}
+        <Section title="Customer signature">
+          {existing.customerSignatureUrl ? (
+            <Text style={styles.body}>Captured ✓</Text>
+          ) : (
+            <Text style={styles.hint}>Capture the customer signature before completing.</Text>
+          )}
+          <TouchableOpacity
+            style={styles.sectionBtn}
+            onPress={() => setSignatureOpen(true)}
+          >
+            <Text style={styles.sectionBtnText}>
+              {existing.customerSignatureUrl ? 'Re-capture signature' : 'Capture signature'}
+            </Text>
+          </TouchableOpacity>
+        </Section>
+
         {/* Advance actions */}
         {next.length > 0 && (
           <Section title="Advance">
@@ -176,6 +240,20 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           </Section>
         )}
       </ScrollView>
+
+      <SignatureModal
+        visible={signatureOpen}
+        caseId={existing.id}
+        onClose={() => setSignatureOpen(false)}
+        onCaptured={async (fileUrl) => {
+          try {
+            const updated = await casesApi.update(existing.id, { customerSignatureUrl: fileUrl })
+            setExisting(updated)
+          } catch (e) {
+            Alert.alert('Save failed', e instanceof Error ? e.message : 'Try again')
+          }
+        }}
+      />
     </SafeAreaView>
   )
 }
@@ -236,6 +314,40 @@ const styles = StyleSheet.create({
   advanceBtnBusy: { opacity: 0.7 },
   advanceText: { ...typography.bodyB, color: colors.textInverse },
   errorText: { ...typography.body, color: colors.danger, marginBottom: spacing.md, textAlign: 'center' },
+  errorInline: { ...typography.small, color: colors.danger },
   backBtn: { padding: spacing.md },
   backText: { color: colors.primary, ...typography.bodyB },
+  hint: { ...typography.small, color: colors.textMuted, fontStyle: 'italic' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  photoThumb: { width: 80, gap: 4 },
+  photoImg: { width: 80, height: 80, borderRadius: radii.sm, backgroundColor: colors.surfaceMuted },
+  photoStub: {
+    width: 80, height: 80,
+    borderRadius: radii.sm,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  photoStubText: { ...typography.micro, color: colors.primaryDark, fontWeight: '600' },
+  photoName: { ...typography.micro, color: colors.textSubtle },
+  rowBtns: { flexDirection: 'row', gap: spacing.sm },
+  sectionBtn: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+  },
+  sectionBtnText: { ...typography.bodyB, color: colors.textInverse },
+  sectionBtnGhost: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  sectionBtnGhostText: { ...typography.bodyB, color: colors.text },
+  btnBusy: { opacity: 0.7 },
 })

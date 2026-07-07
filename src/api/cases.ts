@@ -35,6 +35,7 @@ export interface ServiceCase {
   classificationTemplateId: string | null
   description: string | null
   workNotes: string | null
+  customerSignatureUrl: string | null
   scheduledStart: string | null
   scheduledEnd: string | null
   enRouteAt: string | null
@@ -81,6 +82,12 @@ export const casesApi = {
   get: async (id: string): Promise<ServiceCase> => {
     const r = (await client.get(`/fs/cases/${id}`)).data as ApiEnvelope<ServiceCase>
     if (!r.success || !r.data) throw new Error(r.error?.message ?? 'Case not found')
+    return r.data
+  },
+
+  update: async (id: string, patch: Partial<ServiceCase>): Promise<ServiceCase> => {
+    const r = (await client.patch(`/fs/cases/${id}`, patch)).data as ApiEnvelope<ServiceCase>
+    if (!r.success || !r.data) throw new Error(r.error?.message ?? 'Update failed')
     return r.data
   },
 
