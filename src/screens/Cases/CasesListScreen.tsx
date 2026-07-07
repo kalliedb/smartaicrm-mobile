@@ -13,6 +13,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { casesApi, type ServiceCase, type ServiceCaseStatus } from '@api/cases'
 import { useAuth } from '@store/auth'
+import { useOutboxDrain } from '@hooks/useOutboxDrain'
 import { colors, spacing, radii, typography } from '@theme/index'
 import type { RootStackParamList } from '@navigation/RootNavigator'
 
@@ -43,6 +44,7 @@ const STATUS_TONE: Partial<Record<ServiceCaseStatus, { bg: string; fg: string }>
 
 export default function CasesListScreen({ navigation }: Props) {
   const { user, logout } = useAuth()
+  const outbox = useOutboxDrain()
   const [cases, setCases] = useState<ServiceCase[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -92,6 +94,19 @@ export default function CasesListScreen({ navigation }: Props) {
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
+      )}
+      {outbox.pending > 0 && (
+        <TouchableOpacity
+          style={styles.outboxBanner}
+          onPress={() => void outbox.attemptDrain()}
+          disabled={outbox.draining}
+        >
+          <Text style={styles.outboxText}>
+            {outbox.draining
+              ? `Syncing ${outbox.pending} queued item${outbox.pending === 1 ? '' : 's'}…`
+              : `${outbox.pending} item${outbox.pending === 1 ? '' : 's'} queued — tap to retry`}
+          </Text>
+        </TouchableOpacity>
       )}
 
       <FlatList
@@ -173,6 +188,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
   },
   errorText: { color: colors.danger, ...typography.small },
+  outboxBanner: {
+    backgroundColor: '#FEF3C7',
+    padding: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    borderRadius: radii.md,
+  },
+  outboxText: { ...typography.small, color: '#B45309', textAlign: 'center' },
   row: {
     backgroundColor: colors.surface,
     borderRadius: radii.md,

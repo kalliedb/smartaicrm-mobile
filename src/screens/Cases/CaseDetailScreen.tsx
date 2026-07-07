@@ -20,6 +20,14 @@ import {
 } from '@api/cases'
 import { usePhotoAttach } from '@hooks/usePhotoAttach'
 import SignatureModal from './SignatureModal'
+import { enqueue } from '@utils/outbox'
+
+function isNetworkError(e: unknown): boolean {
+  const err = e as { response?: unknown; message?: string }
+  if (err?.response) return false
+  const msg = err?.message ?? ''
+  return /Network Error|Failed to fetch|timeout|ENOTFOUND|abort/i.test(msg)
+}
 import { colors, spacing, radii, typography } from '@theme/index'
 import type { RootStackParamList } from '@navigation/RootNavigator'
 
@@ -94,8 +102,22 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     setTransitioning(next)
     try {
       const geo = next === 'on_site' ? await captureGeo() : undefined
-      const updated = await casesApi.transition(existing.id, next, geo)
-      setExisting(updated)
+      try {
+        const updated = await casesApi.transition(existing.id, next, geo)
+        setExisting(updated)
+      } catch (e) {
+        // Offline queues the transition; when the outbox drains, the
+        // desktop dispatcher sees the status change with the original
+        // GPS coords. Show an optimistic local state change so the FA
+        // isn't stuck staring at the previous status.
+        if (isNetworkError(e)) {
+          await enqueue({ kind: 'case_status', caseId: existing.id, next, geo })
+          setExisting({ ...existing, status: next })
+          Alert.alert('No signal', 'Status queued — will send when signal returns.')
+          return
+        }
+        throw e
+      }
     } catch (e) {
       Alert.alert('Status change failed', e instanceof Error ? e.message : 'Try again')
     } finally {

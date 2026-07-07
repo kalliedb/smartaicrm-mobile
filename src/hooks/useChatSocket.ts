@@ -16,8 +16,19 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatApi, type ChatMessage } from '@api/chat'
+import { enqueue } from '@utils/outbox'
 import { getTokens } from '@utils/storage'
 import env from '@config/env'
+
+// Rough "no signal" classifier — anything without a response is treated
+// as offline; a 4xx/5xx from the server is a real error and doesn't
+// queue (we'd just queue a message the server will reject again).
+function isNetworkError(e: unknown): boolean {
+  const err = e as { response?: unknown; message?: string }
+  if (err?.response) return false
+  const msg = err?.message ?? ''
+  return /Network Error|Failed to fetch|timeout|ENOTFOUND|abort/i.test(msg)
+}
 
 interface Options {
   conversationId: string | null
@@ -79,10 +90,21 @@ export function useChatSocket({ conversationId, pollMs = 4000 }: Options): UseCh
     if (!conversationId) throw new Error('No conversation')
     const trimmed = body.trim()
     if (!trimmed) return
-    const created = await chatApi.send(conversationId, trimmed)
-    // Optimistic upsert — WS broadcast will arrive with the same id and
-    // dedupe cleanly, so this doesn't produce a double bubble.
-    upsert(created)
+    try {
+      const created = await chatApi.send(conversationId, trimmed)
+      // Optimistic upsert — WS broadcast will arrive with the same id and
+      // dedupe cleanly, so this doesn't produce a double bubble.
+      upsert(created)
+    } catch (e) {
+      // Offline? Queue and surface success — the FA gets a "queued"
+      // acknowledgement rather than a scary red error, and the drain
+      // hook will replay when signal returns.
+      if (isNetworkError(e)) {
+        await enqueue({ kind: 'chat_send', conversationId, body: trimmed })
+        return
+      }
+      throw e
+    }
   }, [conversationId, upsert])
 
   useEffect(() => {

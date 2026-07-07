@@ -11,15 +11,17 @@
  * Future sprints add ChatScreen, offline-queue banner, and deep-link
  * handling.
  */
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { ActivityIndicator, View, StyleSheet } from 'react-native'
-import { NavigationContainer } from '@react-navigation/native'
+import { NavigationContainer, type NavigationContainerRef } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useAuth } from '@store/auth'
 import LoginScreen from '@screens/Auth/LoginScreen'
 import CasesListScreen from '@screens/Cases/CasesListScreen'
 import CaseDetailScreen from '@screens/Cases/CaseDetailScreen'
 import ChatScreen from '@screens/Cases/ChatScreen'
+import { useRegisterForPush } from '@hooks/useRegisterForPush'
+import { useNotificationTapDeepLink } from '@hooks/useNotificationTapDeepLink'
 import { colors } from '@theme/index'
 
 export type RootStackParamList = {
@@ -33,10 +35,18 @@ const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export default function RootNavigator() {
   const { user, bootLoading, boot } = useAuth()
+  const navigationRef = useRef<NavigationContainerRef<RootStackParamList> | null>(null)
 
   useEffect(() => {
     void boot()
   }, [boot])
+
+  // Push notifications — only after login (device has a user to associate
+  // the Expo token with). The hook itself is a no-op when disabled.
+  useRegisterForPush(Boolean(user))
+
+  // Handle notification taps → deep-link into the right case screen.
+  useNotificationTapDeepLink(navigationRef)
 
   if (bootLoading) {
     return (
@@ -47,7 +57,7 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         screenOptions={{
           headerStyle: { backgroundColor: colors.background },

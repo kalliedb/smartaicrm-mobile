@@ -54,6 +54,12 @@
           "photosPermission": "Attach photos to field service cases",
           "cameraPermission": "Attach photos to field service cases"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0D9488"
+        }
       ]
     ],
     "owner": "kalliedb"
