@@ -1,4 +1,61 @@
 {
-  "name": "SmartAICRMMobile",
-  "displayName": "SmartAI BMS Field"
+  "expo": {
+    "name": "Aivera Field",
+    "slug": "aivera-field",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "aiverafield",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "solutions.aivera.field",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Attach photos to field service cases",
+        "NSPhotoLibraryUsageDescription": "Attach photos to field service cases",
+        "NSLocationWhenInUseUsageDescription": "Geo-stamp your arrival on-site",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "solutions.aivera.field",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#11112B"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#11112B"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Geo-stamp your arrival on-site"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos to field service cases",
+          "cameraPermission": "Attach photos to field service cases"
+        }
+      ]
+    ],
+    "owner": "kalliedb"
+  }
 }

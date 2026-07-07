@@ -1,0 +1,125 @@
+default_platform(:ios)
+
+# React Native / Expo app. The native iOS project is NOT committed — it's
+# regenerated from app.config.js by `expo prebuild` on every run. Same
+# pattern as Aivera Golf / Aivera Echo.
+
+BUNDLE = "solutions.aivera.field"
+
+# Temp keychain used by match on CI. Password is ephemeral — keychain is
+# created fresh each run and discarded with the runner.
+KEYCHAIN_NAME     = "aivera_field_ci"
+KEYCHAIN_PASSWORD = "aivera_field_ci_temp_password"
+
+platform :ios do
+
+  # Build a signed App Store archive and upload it to TestFlight.
+  # Triggered by the ios-testflight.yml workflow on v* tags.
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    # 1. App Store Connect API key (from CI secrets). ASC_KEY_P8 is stored
+    #    base64-encoded so the multi-line PEM survives GitHub secrets intact.
+    api_key = app_store_connect_api_key(
+      key_id:       ENV.fetch("ASC_KEY_ID"),
+      issuer_id:    ENV.fetch("ASC_ISSUER_ID"),
+      key_content:  ENV.fetch("ASC_KEY_P8"),
+      is_key_content_base64: true
+    )
+
+    # 2. Fresh temp keychain — match installs the distribution cert into it
+    #    so the subsequent build_app can find the private key.
+    create_keychain(
+      name:             KEYCHAIN_NAME,
+      password:         KEYCHAIN_PASSWORD,
+      default_keychain: true,
+      unlock:           true,
+      timeout:          3600,
+      lock_when_sleeps: false
+    )
+
+    # 3. Generate the native iOS project from app.config.js, then install pods.
+    #    `sh` runs with CWD = fastlane/, so ".." is the Expo project root.
+    Dir.chdir("..") do
+      sh("npx", "expo", "prebuild", "--platform", "ios", "--no-install", "--clean")
+      sh("cd ios && pod install")
+    end
+
+    # Expo names the workspace/scheme from expo.name. Resolve it instead of
+    # hardcoding so a name change doesn't silently break the build.
+    workspace = Dir.chdir("..") { Dir["ios/*.xcworkspace"].first }
+    raise "No .xcworkspace found — did expo prebuild run?" if workspace.nil?
+    scheme = File.basename(workspace, ".xcworkspace")
+
+    # 4. Fetch (or, on first run, create + push) distribution cert + profile.
+    #    readonly:false lets the very first CI run bootstrap the cert repo.
+    match(
+      type:              "appstore",
+      app_identifier:    BUNDLE,
+      api_key:           api_key,
+      readonly:          false,
+      keychain_name:     KEYCHAIN_NAME,
+      keychain_password: KEYCHAIN_PASSWORD
+    )
+
+    team_id = ENV.fetch("APPLE_TEAM_ID")
+
+    # 5. Force MANUAL signing, pinned to the match profile by UUID, signed
+    #    with the profile's OWN team. Pin by UUID because Xcode 16+ can't
+    #    resolve a manually-set profile by name reliably, and derive
+    #    DEVELOPMENT_TEAM from the profile so a reused cert-repo team wins.
+    profile_path = ENV.fetch("sigh_#{BUNDLE}_appstore_profile-path")
+    profile_uuid = File.basename(profile_path, ".mobileprovision")
+    decoded_profile = `security cms -D -i "#{profile_path}" 2>/dev/null`
+    if (m = decoded_profile.match(%r{<key>TeamIdentifier</key>\s*<array>\s*<string>([A-Z0-9]+)</string>}))
+      team_id = m[1]
+      UI.important("Signing with team #{team_id} (derived from the match profile)")
+    end
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path:                  "ios/#{scheme}.xcodeproj",
+      team_id:               team_id,
+      code_sign_identity:    "Apple Distribution",
+      profile_name:          profile_uuid,
+      profile_uuid:          profile_uuid,
+      targets:               [scheme]
+    )
+
+    # 6. Build. Build number from the CI run keeps each TestFlight upload unique.
+    build_number = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
+
+    # gym/build_app has no api_key option, so write the ASC key to disk and hand
+    # xcodebuild the App Store Connect API credentials directly. With
+    # -allowProvisioningUpdates this lets xcodebuild download the named match
+    # profile from App Store Connect if it can't resolve it locally by name.
+    require "base64"
+    asc_key_path = "#{Dir.pwd}/asc_api_key.p8"
+    File.write(asc_key_path, Base64.decode64(ENV.fetch("ASC_KEY_P8")))
+    asc_auth = "-authenticationKeyPath #{asc_key_path} " \
+               "-authenticationKeyID #{ENV.fetch('ASC_KEY_ID')} " \
+               "-authenticationKeyIssuerID #{ENV.fetch('ASC_ISSUER_ID')}"
+
+    build_app(
+      workspace:      workspace,
+      scheme:         scheme,
+      configuration:  "Release",
+      export_method:  "app-store",
+      xcargs:         "CURRENT_PROJECT_VERSION=#{build_number} DEVELOPMENT_TEAM=#{team_id} -allowProvisioningUpdates #{asc_auth}",
+      export_options: {
+        method:               "app-store",
+        signingStyle:         "manual",
+        teamID:               team_id,
+        provisioningProfiles: {
+          BUNDLE => "match AppStore #{BUNDLE}"
+        }
+      }
+    )
+
+    # 7. Upload to TestFlight. Skip waiting for Apple's processing so CI exits
+    #    promptly; the build appears in TestFlight a few minutes later.
+    upload_to_testflight(
+      api_key:                          api_key,
+      skip_waiting_for_build_processing: true,
+      distribute_external:              false
+    )
+  end
+end

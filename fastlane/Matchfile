@@ -1,0 +1,18 @@
+# fastlane match — stores the distribution certificate + provisioning profile
+# encrypted in a SEPARATE private git repo. Mac-less-friendly (identical to
+# Aivera Golf / Aivera Echo): match creates the signing assets on the CI
+# runner the first time, encrypts them with MATCH_PASSWORD, and pushes them
+# to the cert repo. Every subsequent build just decrypts + installs them.
+#
+# One cert repo can hold multiple apps' assets (keyed by bundle id), so this
+# can reuse the Golf/Echo certificates repo if you prefer — match namespaces
+# by app_identifier.
+
+git_url(ENV["MATCH_GIT_URL"]) # e.g. https://github.com/kalliedb/aivera-field-certificates.git
+storage_mode("git")
+
+type("appstore")
+app_identifier(["solutions.aivera.field"])
+
+# Read/write is controlled per-lane in the Fastfile (CI passes readonly: false
+# so the first run can create + push, and reuse thereafter).

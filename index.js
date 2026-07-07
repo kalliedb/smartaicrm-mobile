@@ -1,5 +1,6 @@
-import { AppRegistry } from 'react-native'
+import { registerRootComponent } from 'expo'
 import App from './App'
-import { name as appName } from './app.json'
 
-AppRegistry.registerComponent(appName, () => App)
+// Expo bare-workflow entry. registerRootComponent reads the app name from
+// expo.name in app.json and calls AppRegistry.registerComponent internally.
+registerRootComponent(App)

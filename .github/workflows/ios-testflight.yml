@@ -1,0 +1,71 @@
+name: iOS TestFlight
+
+# Cut a TestFlight build by pushing a tag like v0.1.0-tf1:
+#   git tag v0.1.0-tf1 && git push origin v0.1.0-tf1
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  testflight:
+    name: Build + upload to TestFlight
+    # Pin macos-26 (Tahoe) — Apple requires the iOS 26 SDK (Xcode 26) for App
+    # Store Connect submissions; macos-latest still maps to an older image.
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      # Public build-time config (injected by app.config.js during prebuild).
+      EXPO_PUBLIC_BACKEND_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_URL }}
+      FASTLANE_HIDE_CHANGELOG: "true"
+      # SPM/CocoaPods resolution on a cold runner needs a real budget.
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "180"
+      FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "5"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so build number = git commit count is correct
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$XCODE_26" ]; then
+            echo "::error::No Xcode 26 found on the runner. Available:"
+            ls -1 /Applications/ | grep -i '^Xcode' || true
+            exit 1
+          fi
+          echo "Selecting $XCODE_26"
+          sudo xcode-select -s "$XCODE_26/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Set up Ruby + fastlane (bundler)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Build + upload to TestFlight
+        # The lane runs `expo prebuild` (generates ios/), pod install, match,
+        # build_app, and upload_to_testflight.
+        run: bundle exec fastlane ios beta

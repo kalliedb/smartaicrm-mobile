@@ -1,9 +1,7 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')
+const { getDefaultConfig } = require('expo/metro-config')
 
-/**
- * Metro configuration
- * https://reactnative.dev/docs/metro
- */
-const config = {}
+// Expo-flavoured Metro config. Extend here if we ever need SVG transformer,
+// custom asset extensions, etc.
+const config = getDefaultConfig(__dirname)
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config)
+module.exports = config

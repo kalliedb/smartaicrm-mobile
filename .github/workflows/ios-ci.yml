@@ -1,0 +1,55 @@
+name: iOS CI
+
+# Unsigned simulator build to catch native build breakage (pods, config
+# plugins, prebuild) without needing signing secrets.
+#
+# Manual-only: macOS runners bill at 10x, so this is NOT run on every push.
+# Trigger from the Actions tab when validating a native change.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build for Simulator
+    runs-on: macos-15   # Xcode 16; no signing needed for a simulator build
+    timeout-minutes: 45
+
+    env:
+      EXPO_PUBLIC_BACKEND_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Prebuild iOS project
+        run: npx expo prebuild --platform ios --no-install --clean
+
+      - name: Install pods
+        run: cd ios && pod install
+
+      - name: Build for iOS Simulator (no signing)
+        run: |
+          set -o pipefail
+          WS=$(ls -d ios/*.xcworkspace | head -n 1)
+          SCHEME=$(basename "$WS" .xcworkspace)
+          echo "Building scheme: $SCHEME"
+          xcodebuild build \
+            -workspace "$WS" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
