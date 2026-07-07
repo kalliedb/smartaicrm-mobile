@@ -69,7 +69,17 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     try {
       const c = await casesApi.get(caseId)
       setExisting(c)
-      navigation.setOptions({ title: c.workOrderNumber })
+      navigation.setOptions({
+        title: c.workOrderNumber,
+        headerRight: () => (
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Chat', { caseId: c.id, caseNumber: c.workOrderNumber })}
+            style={styles.chatBtn}
+          >
+            <Text style={styles.chatBtnText}>Chat</Text>
+          </TouchableOpacity>
+        ),
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load case')
     } finally {
@@ -350,4 +360,6 @@ const styles = StyleSheet.create({
   },
   sectionBtnGhostText: { ...typography.bodyB, color: colors.text },
   btnBusy: { opacity: 0.7 },
+  chatBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  chatBtnText: { ...typography.bodyB, color: colors.primary },
 })

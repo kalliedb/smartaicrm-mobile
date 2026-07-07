@@ -19,12 +19,14 @@ import { useAuth } from '@store/auth'
 import LoginScreen from '@screens/Auth/LoginScreen'
 import CasesListScreen from '@screens/Cases/CasesListScreen'
 import CaseDetailScreen from '@screens/Cases/CaseDetailScreen'
+import ChatScreen from '@screens/Cases/ChatScreen'
 import { colors } from '@theme/index'
 
 export type RootStackParamList = {
   Login: undefined
   Cases: undefined
   CaseDetail: { caseId: string }
+  Chat: { caseId: string; caseNumber?: string }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -64,6 +66,11 @@ export default function RootNavigator() {
               name="CaseDetail"
               component={CaseDetailScreen}
               options={{ title: 'Case', headerBackTitle: 'Cases' }}
+            />
+            <Stack.Screen
+              name="Chat"
+              component={ChatScreen}
+              options={{ title: 'Chat', headerBackTitle: 'Case' }}
             />
           </>
         ) : (
