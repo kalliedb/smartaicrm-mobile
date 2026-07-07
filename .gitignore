@@ -67,9 +67,11 @@ coverage/
 *.jks               # Android keystores
 
 # credentials/ — release keystore + SECRETS.txt live here locally
+# NOTE: SECRETS.txt.example is intentionally EXCLUDED from tracking
+# (it's easy to accidentally paste real values into it — see
+# credentials/README.md for the required shape instead).
 credentials/*
 !credentials/README.md
-!credentials/SECRETS.txt.example
 
 # Ruby / Fastlane
 vendor/bundle/
