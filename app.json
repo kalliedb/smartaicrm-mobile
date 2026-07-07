@@ -22,7 +22,7 @@
       "package": "solutions.aivera.field",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#11112B"
+        "backgroundColor": "#3E1F6E"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -37,9 +37,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
-          "imageWidth": 200,
+          "imageWidth": 320,
           "resizeMode": "contain",
-          "backgroundColor": "#11112B"
+          "backgroundColor": "#3E1F6E"
         }
       ],
       [
