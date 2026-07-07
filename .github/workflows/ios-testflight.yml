@@ -1,20 +1,50 @@
 name: iOS TestFlight
 
-# Cut a TestFlight build by pushing a tag with a `-tf` suffix, e.g.:
-#   git tag v0.1.0-tf1 && git push origin v0.1.0-tf1
+# Fires on the SAME v* tag as android-build.yml so a single git tag cuts
+# a full cross-platform release. The gate below skips the job when the
+# iOS signing bundle isn't set (first Android-only releases, secret
+# rotations mid-project) — safer than hard-failing on ENV.fetch.
 #
-# Android-only tags (v0.1.0-a1, v0.1.0-android1, etc.) do NOT fire this
-# workflow — that lets you ship Android before iOS signing secrets exist.
-# Change the pattern back to `v*` once the iOS signing bundle is set up.
+# Cut a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Android-only fallback (before iOS secrets are set):
+#   git tag v0.1.0-a1 && git push origin v0.1.0-a1
 on:
   push:
     tags:
-      - "v*-tf*"
+      - "v*"
   workflow_dispatch: {}
 
 jobs:
+  gate:
+    name: Check iOS signing secrets
+    runs-on: ubuntu-latest
+    outputs:
+      have_secrets: ${{ steps.check.outputs.have_secrets }}
+    steps:
+      - id: check
+        env:
+          ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID:  ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8:     ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID:  ${{ secrets.APPLE_TEAM_ID }}
+          MATCH_GIT_URL:  ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: |
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8" ] \
+             && [ -n "$APPLE_TEAM_ID" ] && [ -n "$MATCH_GIT_URL" ] && [ -n "$MATCH_PASSWORD" ]; then
+            echo "have_secrets=true" >> "$GITHUB_OUTPUT"
+            echo "iOS signing secrets present — proceeding to build."
+          else
+            echo "have_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::iOS signing secrets missing — skipping TestFlight job. Set ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, APPLE_TEAM_ID, MATCH_GIT_URL, MATCH_PASSWORD to enable."
+          fi
+
   testflight:
     name: Build + upload to TestFlight
+    needs: gate
+    if: needs.gate.outputs.have_secrets == 'true'
     # Pin macos-26 (Tahoe) — Apple requires the iOS 26 SDK (Xcode 26) for App
     # Store Connect submissions; macos-latest still maps to an older image.
     runs-on: macos-26
