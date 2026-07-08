@@ -13,7 +13,6 @@ import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native'
 import Signature from 'react-native-signature-canvas'
-import type SignatureViewRef from 'react-native-signature-canvas'
 import { uploadDocument } from '@api/documents'
 import { colors, spacing, radii, typography } from '@theme/index'
 
@@ -31,14 +30,17 @@ const CANVAS_STYLE = `
 `
 
 export default function SignatureModal({ visible, caseId, onClose, onCaptured }: Props) {
-  const ref = useRef<SignatureViewRef>(null)
+  // Signature canvas exposes readSignature() + clearSignature() imperatively;
+  // its library types don't expose a proper ref type, so we type as any.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ref = useRef<any>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleOK = async (dataUrl: string) => {
-    // dataUrl looks like "data:image/png;base64,iVBORw0K…". React Native
-    // FormData accepts a { uri, name, type } shape where uri can be a
-    // data-URL string — the multipart body carries the raw bytes.
+    // dataUrl looks like "data:image/png;base64,iVBORw0K…". Uploader
+    // will materialise the data URI into a real cache-dir file before
+    // uploading — RN FormData can't stream data URIs directly.
     setError(null)
     setUploading(true)
     try {
