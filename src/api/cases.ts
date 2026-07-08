@@ -33,6 +33,7 @@ export interface ServiceCase {
   status: ServiceCaseStatus
   assignedUserId: string | null
   classificationTemplateId: string | null
+  templateData: Record<string, unknown> | null
   description: string | null
   workNotes: string | null
   customerSignatureUrl: string | null

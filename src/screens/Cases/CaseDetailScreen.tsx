@@ -18,8 +18,10 @@ import {
   casesApi, allowedNextStatuses,
   type ServiceCase, type ServiceCaseStatus,
 } from '@api/cases'
+import { templatesApi, type CaseTemplate } from '@api/templates'
 import { usePhotoAttach } from '@hooks/usePhotoAttach'
 import SignatureModal from './SignatureModal'
+import TemplateForm, { validateFormData } from '@components/TemplateForm'
 import { enqueue } from '@utils/outbox'
 
 function isNetworkError(e: unknown): boolean {
@@ -70,6 +72,9 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
   const [transitioning, setTransitioning] = useState<ServiceCaseStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [signatureOpen, setSignatureOpen] = useState(false)
+  const [template, setTemplate] = useState<CaseTemplate | null>(null)
+  const [formData, setFormData] = useState<Record<string, unknown>>({})
+  const [savingForm, setSavingForm] = useState(false)
   const photos = usePhotoAttach({ caseId })
 
   const load = useCallback(async () => {
@@ -77,6 +82,21 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     try {
       const c = await casesApi.get(caseId)
       setExisting(c)
+      // Hydrate template + prior form data if the case is classified.
+      if (c.classificationTemplateId) {
+        try {
+          const tpl = await templatesApi.get(c.classificationTemplateId)
+          setTemplate(tpl)
+        } catch { setTemplate(null) }
+      }
+      // Existing templateData may already be the envelope shape (from a
+      // prior partial submission on the web) OR the inner form_data bag.
+      // Normalise to the inner bag for editing.
+      const td = c.templateData ?? {}
+      const inner = (td && typeof td === 'object' && 'form_data' in td)
+        ? (td as { form_data?: Record<string, unknown> }).form_data ?? {}
+        : td as Record<string, unknown>
+      setFormData(inner)
       navigation.setOptions({
         title: c.workOrderNumber,
         headerRight: () => (
@@ -97,8 +117,69 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
 
   useEffect(() => { void load() }, [load])
 
+  // Auto-save the form data as the FA fills it. Debounced (2s) so we
+  // don't PATCH on every keystroke. Sends the RAW bag (not the envelope)
+  // so the server treats it as a scratchpad edit — full envelope
+  // validation runs only on Complete.
+  useEffect(() => {
+    if (!existing || !template) return
+    setSavingForm(true)
+    const timer = setTimeout(async () => {
+      try {
+        await casesApi.update(existing.id, {
+          templateData: formData as unknown as ServiceCase['templateData'],
+        })
+      } catch { /* silent — network errors surface via other paths */ }
+      finally { setSavingForm(false) }
+    }, 2000)
+    return () => { clearTimeout(timer); setSavingForm(false) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData])
+
   const advance = useCallback(async (next: ServiceCaseStatus) => {
     if (!existing) return
+
+    // Completing → validate + submit envelope. Templates require the
+    // full { template_id, header, form_data } shape, so we build it
+    // from the current bag first. Server ajv is authoritative.
+    if (next === 'completed' && template) {
+      const localErrors = validateFormData(template.jsonSchema, formData)
+      if (localErrors.length > 0) {
+        Alert.alert(
+          'Fields required',
+          localErrors.slice(0, 5).join('\n') + (localErrors.length > 5 ? '\n…' : ''),
+        )
+        return
+      }
+      setTransitioning(next)
+      try {
+        const templateCode = (template.jsonSchema.properties as Record<string, unknown> | undefined)
+          ?.template_id
+        const envelope = {
+          template_id: (templateCode as { const?: string } | undefined)?.const ?? template.code,
+          template_version: template.templateVersion,
+          header: {
+            case_number: existing.workOrderNumber,
+            customer_id: existing.customerCompanyId ?? '00000000-0000-0000-0000-000000000000',
+            site_address: existing.siteAddress ?? 'Unknown',
+            agent_id: existing.assignedUserId ?? '00000000-0000-0000-0000-000000000000',
+            scheduled_at: existing.scheduledStart ?? new Date().toISOString(),
+            arrived_at: existing.onSiteAt,
+            completed_at: new Date().toISOString(),
+          },
+          form_data: formData,
+        }
+        await casesApi.update(existing.id, {
+          templateData: envelope as unknown as ServiceCase['templateData'],
+        })
+        const updated = await casesApi.transition(existing.id, next)
+        setExisting(updated)
+      } catch (e) {
+        Alert.alert('Complete failed', e instanceof Error ? e.message : 'Try again')
+      } finally { setTransitioning(null) }
+      return
+    }
+
     setTransitioning(next)
     try {
       const geo = next === 'on_site' ? await captureGeo() : undefined
@@ -186,6 +267,26 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
             )}
             {existing.onSiteAt && (
               <TimelineRow label="On-site" value={new Date(existing.onSiteAt).toLocaleString()} />
+            )}
+          </Section>
+        )}
+
+        {/* Template form — only when the case has a template classified */}
+        {template && (
+          <Section title={`Case form · ${template.name}`}>
+            <TemplateForm
+              jsonSchema={template.jsonSchema}
+              value={formData}
+              onChange={setFormData}
+              disabled={
+                existing.status === 'completed'
+                || existing.status === 'invoiced'
+                || existing.status === 'paid'
+                || existing.status === 'closed'
+              }
+            />
+            {savingForm && (
+              <Text style={styles.savingHint}>Saving…</Text>
             )}
           </Section>
         )}
@@ -384,4 +485,5 @@ const styles = StyleSheet.create({
   btnBusy: { opacity: 0.7 },
   chatBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   chatBtnText: { ...typography.bodyB, color: colors.primary },
+  savingHint: { ...typography.micro, color: colors.textSubtle, textAlign: 'right' },
 })
