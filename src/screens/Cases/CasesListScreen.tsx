@@ -5,7 +5,7 @@
  *
  * Tapping a row navigates to CaseDetailScreen for that case id.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View, Text, StyleSheet, FlatList, RefreshControl,
   TouchableOpacity, ActivityIndicator, SafeAreaView,
@@ -42,6 +42,38 @@ const STATUS_TONE: Partial<Record<ServiceCaseStatus, { bg: string; fg: string }>
   cancelled:      { bg: '#FECACA', fg: '#B91C1C' },
 }
 
+// Filter buckets on the FA case list. Default view hides cases the FA
+// has already finished on so the list stays focused on today's work.
+type FilterKey = 'active' | 'new' | 'in_progress' | 'closed' | 'all'
+
+const FILTER_LABELS: Record<FilterKey, string> = {
+  active: 'Active',
+  new: 'New',
+  in_progress: 'In Progress',
+  closed: 'Closed',
+  all: 'All',
+}
+
+const NEW_STATUSES = new Set<ServiceCaseStatus>([
+  'new', 'logged', 'classified', 'assigned', 'dispatched', 'scheduled',
+])
+const IN_PROGRESS_STATUSES = new Set<ServiceCaseStatus>([
+  'en_route', 'on_site', 'in_progress', 'awaiting_parts', 'on_hold',
+])
+const CLOSED_STATUSES = new Set<ServiceCaseStatus>([
+  'completed', 'invoiced', 'paid', 'closed', 'cancelled',
+])
+
+function inFilter(status: ServiceCaseStatus, key: FilterKey): boolean {
+  switch (key) {
+    case 'all':         return true
+    case 'active':      return !CLOSED_STATUSES.has(status)
+    case 'new':         return NEW_STATUSES.has(status)
+    case 'in_progress': return IN_PROGRESS_STATUSES.has(status)
+    case 'closed':      return CLOSED_STATUSES.has(status)
+  }
+}
+
 export default function CasesListScreen({ navigation }: Props) {
   const { user, logout } = useAuth()
   const outbox = useOutboxDrain()
@@ -49,6 +81,9 @@ export default function CasesListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Default to Active — hides completed / invoiced / paid / closed /
+  // cancelled so the FA's list stays focused on today's outstanding work.
+  const [filter, setFilter] = useState<FilterKey>('active')
 
   const load = useCallback(async () => {
     setError(null)
@@ -69,6 +104,19 @@ export default function CasesListScreen({ navigation }: Props) {
     setRefreshing(true)
     void load()
   }, [load])
+
+  // Buckets used for the filter chip labels + the visible list.
+  const counts = useMemo(() => ({
+    active:      cases.filter(c => inFilter(c.status, 'active')).length,
+    new:         cases.filter(c => inFilter(c.status, 'new')).length,
+    in_progress: cases.filter(c => inFilter(c.status, 'in_progress')).length,
+    closed:      cases.filter(c => inFilter(c.status, 'closed')).length,
+    all:         cases.length,
+  }), [cases])
+  const visibleCases = useMemo(
+    () => cases.filter(c => inFilter(c.status, filter)),
+    [cases, filter],
+  )
 
   if (loading) {
     return (
@@ -109,19 +157,44 @@ export default function CasesListScreen({ navigation }: Props) {
         </TouchableOpacity>
       )}
 
+      {/* Filter chips — Active is the default so Closed/Cancelled cases
+         are out of the way. Tap Closed or All to review historic work. */}
+      <View style={styles.filterRow}>
+        {(['active', 'new', 'in_progress', 'closed', 'all'] as FilterKey[]).map(k => {
+          const selected = filter === k
+          return (
+            <TouchableOpacity
+              key={k}
+              onPress={() => setFilter(k)}
+              style={[styles.filterChip, selected && styles.filterChipSelected]}
+            >
+              <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
+                {FILTER_LABELS[k]}
+                <Text style={selected ? styles.filterCountSelected : styles.filterCount}>
+                  {'  '}{counts[k]}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+          )
+        })}
+      </View>
+
       <FlatList
-        data={cases}
+        data={visibleCases}
         keyExtractor={c => c.id}
-        contentContainerStyle={cases.length === 0 ? styles.emptyList : styles.list}
+        contentContainerStyle={visibleCases.length === 0 ? styles.emptyList : styles.list}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
         }
         ListEmptyComponent={
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Nothing assigned yet</Text>
+            <Text style={styles.emptyTitle}>
+              {cases.length === 0 ? 'Nothing assigned yet' : `No ${FILTER_LABELS[filter].toLowerCase()} cases`}
+            </Text>
             <Text style={styles.emptyBody}>
-              When a dispatcher assigns you a case it will appear here. Pull
-              down to refresh.
+              {cases.length === 0
+                ? 'When a dispatcher assigns you a case it will appear here. Pull down to refresh.'
+                : 'Try another filter above or pull down to refresh.'}
             </Text>
           </View>
         }
@@ -203,6 +276,29 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  filterChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterChipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  filterChipText: { ...typography.small, color: colors.textMuted, fontWeight: '600' },
+  filterChipTextSelected: { color: colors.textInverse },
+  filterCount: { color: colors.textSubtle, fontWeight: '400' },
+  filterCountSelected: { color: colors.textInverse, opacity: 0.85, fontWeight: '400' },
   rowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
