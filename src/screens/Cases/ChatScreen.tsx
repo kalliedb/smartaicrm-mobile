@@ -140,6 +140,7 @@ export default function ChatScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.list}
           renderItem={({ item }) => {
             const mine = item.authorUserId === user?.id
+            const readByOthers = mine && !!chat.maxOthersReadAt && chat.maxOthersReadAt >= item.createdAt
             return (
               <View style={[styles.bubbleRow, mine ? styles.rowRight : styles.rowLeft]}>
                 <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
@@ -149,9 +150,16 @@ export default function ChatScreen({ route, navigation }: Props) {
                   <Text style={mine ? styles.bubbleTextMine : styles.bubbleText}>
                     {item.body}
                   </Text>
-                  <Text style={mine ? styles.timestampMine : styles.timestamp}>
-                    {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
+                  <View style={styles.metaRow}>
+                    <Text style={mine ? styles.timestampMine : styles.timestamp}>
+                      {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    {mine && (
+                      <Text style={[styles.tick, readByOthers ? styles.tickRead : styles.tickDelivered]}>
+                        {readByOthers ? '✓✓' : '✓'}
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </View>
             )
@@ -226,6 +234,10 @@ const styles = StyleSheet.create({
   bubbleTextMine: { ...typography.body, color: colors.textInverse },
   timestamp: { ...typography.micro, color: colors.textSubtle, marginTop: 2, alignSelf: 'flex-end' },
   timestampMine: { ...typography.micro, color: colors.primaryLight, marginTop: 2, alignSelf: 'flex-end' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 },
+  tick: { ...typography.micro, fontWeight: '600' },
+  tickDelivered: { color: colors.primaryLight, opacity: 0.7 },
+  tickRead: { color: colors.success },
   composer: {
     flexDirection: 'row',
     padding: spacing.md,

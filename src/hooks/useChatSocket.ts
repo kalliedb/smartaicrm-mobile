@@ -4,8 +4,9 @@
  *
  * Wire protocol (matches server/src/services/fs-chat-ws.service.ts):
  *   → { type: 'subscribe',   conversationIds: [id] }
- *   ← { type: 'new_message', message: ChatMessage }
- *   ← { type: 'message_updated', message: ChatMessage }
+ *   ← { type: 'message:new', message: ChatMessage }
+ *   ← { type: 'message:updated', message: ChatMessage }
+ *   ← { type: 'read:advanced', conversationId, userId, userName, readAt }
  *
  * We deduplicate by message id so a WS-delivered message and its
  * polled duplicate never both render — the last one wins in the map.
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatApi, type ChatMessage } from '@api/chat'
 import { enqueue } from '@utils/outbox'
 import { getTokens } from '@utils/storage'
+import { useAuth } from '@store/auth'
 import env from '@config/env'
 
 // Rough "no signal" classifier — anything without a response is treated
@@ -39,6 +41,13 @@ interface UseChatSocket {
   messages: ChatMessage[]
   connected: boolean
   error: string | null
+  /**
+   * Max readAt cursor received from OTHER participants (via WS
+   * `read:advanced` broadcast). Callers compare each own-message's
+   * createdAt against this to render ✓ (delivered) vs ✓✓ (read).
+   * Empty string when no receipts have arrived yet.
+   */
+  maxOthersReadAt: string
   send: (body: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -54,6 +63,10 @@ export function useChatSocket({ conversationId, pollMs = 4000 }: Options): UseCh
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [maxOthersReadAt, setMaxOthersReadAt] = useState<string>('')
+  const { user } = useAuth()
+  const ownUserIdRef = useRef<string | undefined>(user?.id)
+  ownUserIdRef.current = user?.id
   const wsRef = useRef<WebSocket | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
@@ -110,8 +123,12 @@ export function useChatSocket({ conversationId, pollMs = 4000 }: Options): UseCh
   useEffect(() => {
     if (!conversationId) {
       setMessages([])
+      setMaxOthersReadAt('')
       return
     }
+    // Fresh conversation → clear stale receipt cursor so an old readAt
+    // can't wrongly promote a brand-new outgoing bubble to "read".
+    setMaxOthersReadAt('')
 
     let cancelled = false
     let closedByUs = false
@@ -140,9 +157,24 @@ export function useChatSocket({ conversationId, pollMs = 4000 }: Options): UseCh
         }
         ws.onmessage = (ev) => {
           try {
-            const msg = JSON.parse(String(ev.data)) as { type: string; message?: ChatMessage }
-            if (msg.type === 'new_message' && msg.message) upsert(msg.message)
-            else if (msg.type === 'message_updated' && msg.message) upsert(msg.message)
+            const msg = JSON.parse(String(ev.data)) as {
+              type: string
+              message?: ChatMessage
+              conversationId?: string
+              userId?: string
+              readAt?: string
+            }
+            if ((msg.type === 'message:new' || msg.type === 'new_message') && msg.message) upsert(msg.message)
+            else if ((msg.type === 'message:updated' || msg.type === 'message_updated') && msg.message) upsert(msg.message)
+            else if (msg.type === 'read:advanced' && msg.readAt) {
+              // Other-participant read cursor — drives ✓✓ ticks. Ignore
+              // our own cursor (server auto-advances the sender when
+              // they send, and we don't want that to instantly promote
+              // outgoing bubbles to "read").
+              const uid = String(msg.userId ?? '')
+              if (!uid || uid === ownUserIdRef.current) return
+              setMaxOthersReadAt(prev => (msg.readAt! > prev ? msg.readAt! : prev))
+            }
           } catch { /* ignore malformed frames */ }
         }
         ws.onclose = () => {
@@ -179,5 +211,5 @@ export function useChatSocket({ conversationId, pollMs = 4000 }: Options): UseCh
     }
   }, [conversationId, pollMs, refresh, upsert])
 
-  return { messages, connected, error, send, refresh }
+  return { messages, connected, error, maxOthersReadAt, send, refresh }
 }
