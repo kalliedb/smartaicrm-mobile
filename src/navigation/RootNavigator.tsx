@@ -20,6 +20,7 @@ import LoginScreen from '@screens/Auth/LoginScreen'
 import CasesListScreen from '@screens/Cases/CasesListScreen'
 import CaseDetailScreen from '@screens/Cases/CaseDetailScreen'
 import ChatScreen from '@screens/Cases/ChatScreen'
+import ChatInboxScreen from '@screens/Chat/ChatInboxScreen'
 import { useRegisterForPush } from '@hooks/useRegisterForPush'
 import { useNotificationTapDeepLink } from '@hooks/useNotificationTapDeepLink'
 import { colors } from '@theme/index'
@@ -27,8 +28,14 @@ import { colors } from '@theme/index'
 export type RootStackParamList = {
   Login: undefined
   Cases: undefined
+  ChatInbox: undefined
   CaseDetail: { caseId: string }
-  Chat: { caseId: string; caseNumber?: string }
+  // Chat has two entry shapes:
+  //   { caseId, caseNumber? }        — job conversation, lazy-created via forCase
+  //   { conversationId, title? }     — direct or team conversation, opened by id
+  Chat:
+    | { caseId: string; caseNumber?: string; conversationId?: undefined; title?: undefined }
+    | { conversationId: string; title?: string; caseId?: undefined; caseNumber?: undefined }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -73,6 +80,11 @@ export default function RootNavigator() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="ChatInbox"
+              component={ChatInboxScreen}
+              options={{ title: 'Chats', headerBackTitle: 'Cases' }}
+            />
+            <Stack.Screen
               name="CaseDetail"
               component={CaseDetailScreen}
               options={{ title: 'Case', headerBackTitle: 'Cases' }}
@@ -80,7 +92,7 @@ export default function RootNavigator() {
             <Stack.Screen
               name="Chat"
               component={ChatScreen}
-              options={{ title: 'Chat', headerBackTitle: 'Case' }}
+              options={{ title: 'Chat', headerBackTitle: 'Back' }}
             />
           </>
         ) : (

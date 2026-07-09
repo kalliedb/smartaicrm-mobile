@@ -129,13 +129,21 @@ export default function CasesListScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerLeft}>
           <Text style={styles.title}>My Cases</Text>
           <Text style={styles.subtitle}>{user?.name ?? user?.email ?? 'Field agent'}</Text>
         </View>
-        <TouchableOpacity onPress={() => void logout()} style={styles.logoutBtn}>
-          <Text style={styles.logoutText}>Sign out</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ChatInbox')}
+            style={styles.headerBtn}
+          >
+            <Text style={styles.headerBtnText}>Chats</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => void logout()} style={styles.logoutBtn}>
+            <Text style={styles.logoutText}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {error && (
@@ -246,6 +254,16 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.h2, color: colors.text },
   subtitle: { ...typography.small, color: colors.textMuted, marginTop: 2 },
+  headerLeft: { flex: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+  },
+  headerBtnText: { ...typography.small, color: colors.primary, fontWeight: '600' },
   logoutBtn: { padding: spacing.sm },
   logoutText: { ...typography.small, color: colors.primary },
   list: { padding: spacing.lg, gap: spacing.md },

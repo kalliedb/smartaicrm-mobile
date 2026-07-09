@@ -25,7 +25,27 @@ export interface ChatMessage {
   reactions: Array<{ emoji: string; userId: string }>
 }
 
+export interface ChatConversationSummary {
+  id: string
+  kind: 'job' | 'direct' | 'team'
+  title: string | null
+  workOrderId: string | null
+  lastMessageAt: string | null
+  unreadCount: number
+}
+
 export const chatApi = {
+  /**
+   * All conversations the caller is a participant in — job (case),
+   * direct, and team. Sorted newest activity first by the server.
+   * Backs the FA's chat inbox on mobile.
+   */
+  conversations: async (): Promise<ChatConversationSummary[]> => {
+    const r = (await client.get('/chat/conversations')).data as ApiEnvelope<ChatConversationSummary[]>
+    if (!r.success) throw new Error(r.error?.message ?? 'Failed to load conversations')
+    return r.data ?? []
+  },
+
   /**
    * Ensure (idempotent) the job conversation for a case exists and return
    * its id. The server also lazy-creates it on first case save, so this

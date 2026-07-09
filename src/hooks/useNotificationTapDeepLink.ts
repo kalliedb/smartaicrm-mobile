@@ -1,13 +1,19 @@
 /**
  * useNotificationTapDeepLink — when the user taps a push, jump straight
- * to the case it references.
+ * to the right screen.
  *
- * Notification payload shape (agreed with the server, dispatched later):
- *   { data: { caseId: string, kind: 'chat_message' | 'case_assigned' | ... } }
+ * Notification payload:
+ *   { data: {
+ *       caseId?: string,
+ *       conversationId?: string,
+ *       kind?: 'chat_message' | 'case_assigned' | 'case_completed',
+ *   } }
  *
- * kind is informational — we always land on CaseDetail if there's a
- * caseId, and let CaseDetail's own logic show the right sub-view. Chat
- * kind bumps one level deeper into ChatScreen.
+ * Routing precedence:
+ *   1. kind='chat_message' + conversationId → Chat by id (direct/team/job)
+ *   2. kind='chat_message' + caseId          → Chat by caseId (job)
+ *   3. caseId (any other kind)               → CaseDetail
+ *   4. neither present                       → do nothing
  */
 import { useEffect, useRef } from 'react'
 import * as Notifications from 'expo-notifications'
@@ -16,6 +22,7 @@ import type { RootStackParamList } from '@navigation/RootNavigator'
 
 interface Payload {
   caseId?: string
+  conversationId?: string
   kind?: string
 }
 
@@ -48,17 +55,38 @@ export function useNotificationTapDeepLink(
 
     function handle(data: Payload) {
       const nav = navigationRef.current
-      if (!nav?.isReady() || !data.caseId) return
+      if (!nav?.isReady()) return
       // Always ensure Cases is at the root of the stack so Back works.
-      nav.reset({
-        index: 1,
-        routes: [
-          { name: 'Cases' },
-          data.kind === 'chat_message'
-            ? { name: 'Chat', params: { caseId: data.caseId } }
-            : { name: 'CaseDetail', params: { caseId: data.caseId } },
-        ],
-      })
+      if (data.kind === 'chat_message' && data.conversationId) {
+        // Direct / team / job — open by id (works when there's no caseId).
+        nav.reset({
+          index: 1,
+          routes: [
+            { name: 'Cases' },
+            { name: 'Chat', params: { conversationId: data.conversationId } },
+          ],
+        })
+        return
+      }
+      if (data.kind === 'chat_message' && data.caseId) {
+        nav.reset({
+          index: 1,
+          routes: [
+            { name: 'Cases' },
+            { name: 'Chat', params: { caseId: data.caseId } },
+          ],
+        })
+        return
+      }
+      if (data.caseId) {
+        nav.reset({
+          index: 1,
+          routes: [
+            { name: 'Cases' },
+            { name: 'CaseDetail', params: { caseId: data.caseId } },
+          ],
+        })
+      }
     }
   }, [navigationRef])
 }

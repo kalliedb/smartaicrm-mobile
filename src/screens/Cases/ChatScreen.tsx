@@ -1,12 +1,16 @@
 /**
- * ChatScreen — the FA's two-way chat with the dispatcher for one case.
+ * ChatScreen — the FA's two-way chat.
  *
- * Owns nothing persistent: hydrates the conversation id via chatApi.forCase
- * (server auto-creates the "job" conversation if it doesn't exist), then
- * hands the id to useChatSocket which manages WebSocket + poll fallback.
+ * Two entry modes:
+ *   1. { caseId, caseNumber? } — resolves (or lazy-creates) the job
+ *      conversation for that case via chatApi.forCase. Case detail
+ *      Chat button uses this shape.
+ *   2. { conversationId, title? } — opens an existing conversation by
+ *      id. Used by the chat inbox (direct + team chats) and by push
+ *      notification tap deep-links.
  *
  * Mark-as-read fires once on mount so the desktop dispatcher's unread
- * badge clears the moment the FA opens the case chat.
+ * badge clears the moment the FA opens the chat.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -23,10 +27,17 @@ import type { RootStackParamList } from '@navigation/RootNavigator'
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>
 
 export default function ChatScreen({ route, navigation }: Props) {
-  const { caseId, caseNumber } = route.params
+  // Union of the two entry modes — case-scoped or direct/team-scoped.
+  const params = route.params as
+    | { caseId: string; caseNumber?: string; conversationId?: undefined; title?: undefined }
+    | { conversationId: string; title?: string; caseId?: undefined; caseNumber?: undefined }
+  const caseId = 'caseId' in params ? params.caseId : undefined
+  const caseNumber = 'caseNumber' in params ? params.caseNumber : undefined
+  const directConversationId = 'conversationId' in params ? params.conversationId : undefined
+  const directTitle = 'title' in params ? params.title : undefined
   const { user } = useAuth()
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [conversationId, setConversationId] = useState<string | null>(directConversationId ?? null)
+  const [loading, setLoading] = useState(!directConversationId)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -35,11 +46,15 @@ export default function ChatScreen({ route, navigation }: Props) {
   const chat = useChatSocket({ conversationId })
 
   useEffect(() => {
-    navigation.setOptions({ title: caseNumber ? `Chat · ${caseNumber}` : 'Chat' })
-  }, [navigation, caseNumber])
+    const title = caseNumber ? `Chat · ${caseNumber}` : directTitle || 'Chat'
+    navigation.setOptions({ title })
+  }, [navigation, caseNumber, directTitle])
 
-  // Resolve (or create) the job conversation for this case.
+  // Case-scoped: resolve (or lazy-create) the job conversation.
+  // Direct-scoped: conversationId is already known from the route param.
   useEffect(() => {
+    if (directConversationId) return
+    if (!caseId) return
     let cancelled = false
     void (async () => {
       try {
@@ -52,7 +67,7 @@ export default function ChatScreen({ route, navigation }: Props) {
       }
     })()
     return () => { cancelled = true }
-  }, [caseId])
+  }, [caseId, directConversationId])
 
   // Clear the unread badge on the dispatcher side once we're viewing.
   useEffect(() => {
