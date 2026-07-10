@@ -104,4 +104,16 @@ export const casesApi = {
     if (!r.success || !r.data) throw new Error(r.error?.message ?? 'Status change failed')
     return r.data
   },
+
+  /**
+   * v2.0 — spawn a follow-up case from this one. Called after the FA
+   * completes a case with case_outcome_status="Follow-up". Server clones
+   * customer/contact/site/line_items, sets parent_case_id, and moves
+   * the parent to Resolved.
+   */
+  followUp: async (id: string): Promise<ServiceCase> => {
+    const r = (await client.post(`/fs/cases/${id}/follow-up`, {})).data as ApiEnvelope<ServiceCase>
+    if (!r.success || !r.data) throw new Error(r.error?.message ?? 'Follow-up failed')
+    return r.data
+  },
 }

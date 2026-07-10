@@ -22,6 +22,7 @@ import { templatesApi, type CaseTemplate } from '@api/templates'
 import { usePhotoAttach } from '@hooks/usePhotoAttach'
 import SignatureModal from './SignatureModal'
 import TemplateForm, { validateFormData } from '@components/TemplateForm'
+import TravelLabourSection, { type TravelLabour } from '@components/TravelLabourSection'
 import { enqueue } from '@utils/outbox'
 
 function isNetworkError(e: unknown): boolean {
@@ -75,6 +76,7 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
   const [template, setTemplate] = useState<CaseTemplate | null>(null)
   const [formData, setFormData] = useState<Record<string, unknown>>({})
   const [savingForm, setSavingForm] = useState(false)
+  const [travelLabour, setTravelLabour] = useState<TravelLabour>({})
   const photos = usePhotoAttach({ caseId })
 
   const load = useCallback(async () => {
@@ -97,6 +99,12 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
         ? (td as { form_data?: Record<string, unknown> }).form_data ?? {}
         : td as Record<string, unknown>
       setFormData(inner)
+      // v2.0 travel_labour lives at the envelope top-level. Fall back to
+      // an empty object if the case pre-dates v2.0.
+      const tl = (td && typeof td === 'object' && 'travel_labour' in td)
+        ? ((td as { travel_labour?: TravelLabour }).travel_labour ?? {})
+        : {}
+      setTravelLabour(tl)
       navigation.setOptions({
         title: c.workOrderNumber,
         headerRight: () => (
@@ -126,15 +134,18 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     setSavingForm(true)
     const timer = setTimeout(async () => {
       try {
+        // Persist an envelope-shaped scratchpad so travel_labour survives
+        // page reloads. Server accepts partial envelopes on PATCH; strict
+        // validation runs only on Complete.
         await casesApi.update(existing.id, {
-          templateData: formData as unknown as ServiceCase['templateData'],
+          templateData: { form_data: formData, travel_labour: travelLabour } as unknown as ServiceCase['templateData'],
         })
       } catch { /* silent — network errors surface via other paths */ }
       finally { setSavingForm(false) }
     }, 2000)
     return () => { clearTimeout(timer); setSavingForm(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData])
+  }, [formData, travelLabour])
 
   const advance = useCallback(async (next: ServiceCaseStatus) => {
     if (!existing) return
@@ -167,6 +178,7 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
             arrived_at: existing.onSiteAt,
             completed_at: new Date().toISOString(),
           },
+          travel_labour: travelLabour,
           form_data: formData,
         }
         await casesApi.update(existing.id, {
@@ -174,6 +186,30 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
         })
         const updated = await casesApi.transition(existing.id, next)
         setExisting(updated)
+
+        // v2.0 Follow-up trigger — when the FA closed the case with
+        // case_outcome_status="Follow-up", prompt to spawn a child case
+        // with the parent details pre-populated.
+        if (formData.case_outcome_status === 'Follow-up') {
+          Alert.alert(
+            'Create follow-up?',
+            'This case was closed as Follow-up. Spawn a new case with the customer, contact, and line items pre-populated?',
+            [
+              { text: 'Not now', style: 'cancel' },
+              {
+                text: 'Create follow-up',
+                onPress: async () => {
+                  try {
+                    const child = await casesApi.followUp(existing.id)
+                    navigation.replace('CaseDetail', { caseId: child.id })
+                  } catch (e) {
+                    Alert.alert('Follow-up failed', e instanceof Error ? e.message : 'Try again from the case detail.')
+                  }
+                },
+              },
+            ],
+          )
+        }
       } catch (e) {
         Alert.alert('Complete failed', e instanceof Error ? e.message : 'Try again')
       } finally { setTransitioning(null) }
@@ -290,6 +326,20 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
             )}
           </Section>
         )}
+
+        {/* v2.0 Travel & Labour — start/end GPS, km auto-calc, timer, hours. */}
+        <Section title="Travel & Labour">
+          <TravelLabourSection
+            value={travelLabour}
+            onChange={setTravelLabour}
+            disabled={
+              existing.status === 'completed'
+              || existing.status === 'invoiced'
+              || existing.status === 'paid'
+              || existing.status === 'closed'
+            }
+          />
+        </Section>
 
         {/* Photos */}
         <Section title="Photos">

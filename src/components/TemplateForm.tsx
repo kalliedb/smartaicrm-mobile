@@ -196,6 +196,86 @@ function Field({ fieldKey, field, value, required, onChange, disabled }: {
     )
   }
 
+  // ─── Array of objects → repeatable rows (case_line_items etc.) ──
+  // Renders sku / description / qty / serial_number rows with add / delete.
+  // Barcode scan is stubbed for v2.0 — real scanner arrives in the next
+  // native build (needs expo-camera + iOS/Android permissions).
+  if (field.type === 'array' && field.items?.type === 'object') {
+    const rows = Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []
+    const itemProps = field.items.properties ?? {}
+    const itemPropKeys = Object.keys(itemProps)
+    const rowLabel = itemPropKeys.length > 0 ? 'Row' : 'Entry'
+    const addRow = () => onChange([...rows, {}])
+    const setField = (rowIdx: number, key: string, next: unknown) => {
+      const nextRows = rows.map((r, i) => i === rowIdx ? { ...r, [key]: next } : r)
+      onChange(nextRows)
+    }
+    const removeRow = (rowIdx: number) => {
+      onChange(rows.filter((_, i) => i !== rowIdx))
+    }
+    return (
+      <View style={styles.row}>
+        {labelNode}
+        {rows.map((r, idx) => (
+          <View key={idx} style={styles.lineItemCard}>
+            <View style={styles.lineItemHeader}>
+              <Text style={styles.lineItemTitle}>{rowLabel} {idx + 1}</Text>
+              {!disabled && (
+                <TouchableOpacity onPress={() => removeRow(idx)}>
+                  <Text style={styles.lineItemRemove}>Remove</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {itemPropKeys.map(key => {
+              const propSchema = itemProps[key]
+              const propType = propSchema.type
+              const propVal = r[key]
+              const displayLabel = humanise(key)
+              const kbd: 'numeric' | 'default' =
+                propType === 'integer' || propType === 'number' ? 'numeric' : 'default'
+              return (
+                <View key={key} style={styles.lineItemField}>
+                  <Text style={styles.lineItemFieldLabel}>{displayLabel}</Text>
+                  <View style={styles.lineItemInputRow}>
+                    <TextInput
+                      style={styles.lineItemInput}
+                      value={propVal === undefined || propVal === null ? '' : String(propVal)}
+                      onChangeText={txt => {
+                        if (kbd === 'numeric') {
+                          if (txt.trim() === '') { setField(idx, key, null); return }
+                          const n = propType === 'integer' ? parseInt(txt, 10) : parseFloat(txt)
+                          setField(idx, key, Number.isNaN(n) ? null : n)
+                        } else {
+                          setField(idx, key, txt)
+                        }
+                      }}
+                      keyboardType={kbd}
+                      maxLength={propSchema.maxLength}
+                      editable={!disabled}
+                    />
+                    {(key === 'sku' || key === 'serial_number') && !disabled && (
+                      <TouchableOpacity
+                        style={styles.scanBtn}
+                        onPress={() => alert('Barcode scan lands in the next mobile build (v2.1). Type the value for now.')}
+                      >
+                        <Text style={styles.scanBtnText}>Scan</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )
+            })}
+          </View>
+        ))}
+        {!disabled && (
+          <TouchableOpacity style={styles.addRowBtn} onPress={addRow}>
+            <Text style={styles.addRowBtnText}>+ Add {rowLabel.toLowerCase()}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    )
+  }
+
   // ─── Array of enum strings → multi-select chips ─────────────────
   if (field.type === 'array' && field.items?.enum) {
     const arr = Array.isArray(value) ? (value as string[]) : []
@@ -328,4 +408,46 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: colors.textInverse, fontWeight: '600' },
   notice: { padding: spacing.md, backgroundColor: colors.surfaceMuted, borderRadius: radii.md },
   noticeText: { ...typography.small, color: colors.textMuted },
+  lineItemCard: {
+    padding: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceMuted,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  lineItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  lineItemTitle: { ...typography.small, color: colors.textMuted, fontWeight: '600' },
+  lineItemRemove: { ...typography.small, color: colors.danger },
+  lineItemField: { gap: 4 },
+  lineItemFieldLabel: { ...typography.micro, color: colors.textSubtle },
+  lineItemInputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  lineItemInput: {
+    flex: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.surface,
+    ...typography.body,
+    color: colors.text,
+  },
+  scanBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    backgroundColor: colors.primary,
+  },
+  scanBtnText: { ...typography.small, color: colors.textInverse, fontWeight: '600' },
+  addRowBtn: {
+    padding: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    borderRadius: radii.md,
+    alignItems: 'center',
+  },
+  addRowBtnText: { ...typography.small, color: colors.primary, fontWeight: '600' },
 })
