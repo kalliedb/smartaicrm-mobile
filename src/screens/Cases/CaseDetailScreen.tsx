@@ -300,26 +300,23 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        {/* Site */}
-        {existing.siteAddress && (
-          <Section title="Site">
-            <Text style={styles.body}>{existing.siteAddress}</Text>
-            {existing.customerPhone && (
-              <Text style={styles.body}>{existing.customerPhone}</Text>
+        {/* Sprint Q2 — collapse Site / Description / Timeline into one
+           General section so the mobile layout mirrors the Case
+           Templates spec: General → Case Type → Travel & Labour. */}
+        {(existing.siteAddress || existing.description || existing.scheduledStart || existing.enRouteAt || existing.onSiteAt) && (
+          <Section title="General">
+            {existing.contactPerson && (
+              <TimelineRow label="Contact" value={existing.contactPerson} />
             )}
-          </Section>
-        )}
-
-        {/* Description */}
-        {existing.description && (
-          <Section title="Description">
-            <Text style={styles.body}>{existing.description}</Text>
-          </Section>
-        )}
-
-        {/* Schedule */}
-        {(existing.scheduledStart || existing.enRouteAt || existing.onSiteAt) && (
-          <Section title="Timeline">
+            {existing.customerPhone && (
+              <TimelineRow label="Number" value={existing.customerPhone} />
+            )}
+            {existing.siteAddress && (
+              <TimelineRow label="Site" value={existing.siteAddress} />
+            )}
+            {existing.description && (
+              <TimelineRow label="Notes" value={existing.description} />
+            )}
             {existing.scheduledStart && (
               <TimelineRow label="Scheduled" value={new Date(existing.scheduledStart).toLocaleString()} />
             )}
@@ -332,9 +329,10 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           </Section>
         )}
 
-        {/* Template form — only when the case has a template classified */}
+        {/* Case Type — schema-driven form. Renamed from "Case form" to
+           match the operator-facing spec. */}
         {template && (
-          <Section title={`Case form · ${template.name}`}>
+          <Section title={`Case Type · ${template.name}`}>
             <TemplateForm
               jsonSchema={template.jsonSchema}
               value={formData}

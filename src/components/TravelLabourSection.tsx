@@ -77,6 +77,28 @@ function fmtTime(iso: string | null | undefined): string {
   return d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })
 }
 
+/**
+ * Parse an "HH:mm" (or "H:m") string into an ISO timestamp anchored
+ * to today's date. Returns null on unparseable input so the FA can
+ * clear the field.
+ */
+function parseHHmmToISO(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const m = /^(\d{1,2}):(\d{2})$/.exec(trimmed)
+  if (!m) return null
+  const h = Math.min(23, parseInt(m[1], 10))
+  const min = Math.min(59, parseInt(m[2], 10))
+  const d = new Date()
+  d.setHours(h, min, 0, 0)
+  return d.toISOString()
+}
+function fmtHHmm(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export default function TravelLabourSection({ value, onChange, disabled }: Props) {
   // Auto-recompute km + hours when the inputs change, unless the user
   // has manually overridden the km field.
@@ -178,6 +200,38 @@ export default function TravelLabourSection({ value, onChange, disabled }: Props
           <Text style={styles.btnText}>{value.time_end ? '✓ Time End' : 'Time End'}</Text>
           {value.time_end && <Text style={styles.btnHint}>{fmtTime(value.time_end)}</Text>}
         </TouchableOpacity>
+      </View>
+
+      {/* Sprint Q2 — manual time override. If the FA forgot to tap the
+         Start/End buttons on-site, they can type the actual times here
+         (HH:mm, anchored to today). Total hours recomputes automatically. */}
+      <View style={styles.row}>
+        <View style={[styles.field, { flex: 1 }]}>
+          <Text style={styles.label}>Start (HH:mm)</Text>
+          <TextInput
+            style={styles.input}
+            value={fmtHHmm(value.time_start)}
+            onChangeText={txt => onChange({ ...value, time_start: parseHHmmToISO(txt) })}
+            keyboardType="numbers-and-punctuation"
+            editable={!disabled}
+            placeholder="08:15"
+            placeholderTextColor={colors.textSubtle}
+            maxLength={5}
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>End (HH:mm)</Text>
+          <TextInput
+            style={styles.input}
+            value={fmtHHmm(value.time_end)}
+            onChangeText={txt => onChange({ ...value, time_end: parseHHmmToISO(txt) })}
+            keyboardType="numbers-and-punctuation"
+            editable={!disabled}
+            placeholder="16:30"
+            placeholderTextColor={colors.textSubtle}
+            maxLength={5}
+          />
+        </View>
       </View>
 
       <View style={styles.field}>

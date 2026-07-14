@@ -34,6 +34,13 @@ export interface ChatConversationSummary {
   unreadCount: number
 }
 
+export interface TenantUser {
+  id: string
+  name: string | null
+  email: string | null
+  role: string
+}
+
 export const chatApi = {
   /**
    * All conversations the caller is a participant in — job (case),
@@ -80,5 +87,31 @@ export const chatApi = {
     // Fire-and-forget — we don't care about the response body, only that
     // the server updates last_read_at so the badge on desktop clears.
     try { await client.post(`/chat/conversations/${conversationId}/read`) } catch { /* ignore */ }
+  },
+
+  /**
+   * Tenant users the caller can start a direct / team chat with.
+   * Backs the "+ New chat" picker on the FA's inbox — pick a dispatcher /
+   * admin to initiate the conversation.
+   */
+  tenantUsers: async (): Promise<TenantUser[]> => {
+    const r = (await client.get('/chat/tenant-users')).data as ApiEnvelope<TenantUser[]>
+    if (!r.success) throw new Error(r.error?.message ?? 'Failed to load users')
+    return r.data ?? []
+  },
+
+  /**
+   * Create (or de-dupe to an existing) direct / team conversation. The
+   * server matches an existing 1:1 for direct kind so hammering "New"
+   * with the same admin never spawns a duplicate row.
+   */
+  createConversation: async (args: {
+    kind: 'direct' | 'team'
+    title?: string
+    participantUserIds: string[]
+  }): Promise<{ id: string; deduplicated: boolean }> => {
+    const r = (await client.post('/chat/conversations', args)).data as ApiEnvelope<{ id: string; deduplicated: boolean }>
+    if (!r.success || !r.data) throw new Error(r.error?.message ?? 'Could not create chat')
+    return r.data
   },
 }

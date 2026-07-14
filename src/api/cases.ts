@@ -25,6 +25,8 @@ export interface ServiceCase {
   customerName: string
   customerPhone: string | null
   customerEmail: string | null
+  // Sprint O — the individual at the customer (not the company).
+  contactPerson: string | null
   siteAddress: string | null
   siteLat: string | null
   siteLng: string | null

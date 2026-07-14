@@ -12,12 +12,12 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, FlatList, RefreshControl,
-  TouchableOpacity, ActivityIndicator, SafeAreaView,
+  View, Text, StyleSheet, FlatList, RefreshControl, Modal,
+  TouchableOpacity, ActivityIndicator, SafeAreaView, Alert,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { chatApi, type ChatConversationSummary } from '@api/chat'
+import { chatApi, type ChatConversationSummary, type TenantUser } from '@api/chat'
 import { colors, spacing, radii, typography } from '@theme/index'
 import type { RootStackParamList } from '@navigation/RootNavigator'
 
@@ -54,6 +54,12 @@ export default function ChatInboxScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Sprint Q2 — "+ New chat" picker. Fetches tenant users on first open
+  // and lets the FA start a direct conversation with anyone (dispatchers,
+  // admins, other FAs). Server de-dupes existing 1:1s.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [users, setUsers] = useState<TenantUser[]>([])
+  const [creating, setCreating] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -69,6 +75,52 @@ export default function ChatInboxScreen({ navigation }: Props) {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  // Lazy-load users on first modal open, then cache for the session.
+  const openPicker = useCallback(async () => {
+    setPickerOpen(true)
+    if (users.length > 0) return
+    try {
+      const list = await chatApi.tenantUsers()
+      // Sort so dispatchers / admins land at the top — that's who the FA
+      // is most likely reaching for.
+      const rank: Record<string, number> = {
+        admin: 0, platform_admin: 0, manager: 1, dispatcher: 1, field_agent: 2, user: 3, viewer: 4,
+      }
+      list.sort((a, b) => (rank[a.role] ?? 5) - (rank[b.role] ?? 5))
+      setUsers(list)
+    } catch (e) {
+      Alert.alert('Could not load users', e instanceof Error ? e.message : 'Try again')
+      setPickerOpen(false)
+    }
+  }, [users.length])
+
+  useEffect(() => {
+    // Rewire header button to use openPicker (which loads on demand)
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => void openPicker()} style={styles.newBtn}>
+          <Text style={styles.newBtnText}>+ New</Text>
+        </TouchableOpacity>
+      ),
+    })
+  }, [navigation, openPicker])
+
+  const startDirect = useCallback(async (u: TenantUser) => {
+    setCreating(true)
+    try {
+      const r = await chatApi.createConversation({ kind: 'direct', participantUserIds: [u.id] })
+      setPickerOpen(false)
+      navigation.navigate('Chat', {
+        conversationId: r.id,
+        title: u.name || u.email || 'Direct message',
+      })
+    } catch (e) {
+      Alert.alert('Could not start chat', e instanceof Error ? e.message : 'Try again')
+    } finally {
+      setCreating(false)
+    }
+  }, [navigation])
 
   // Re-fetch when returning to this screen (after opening a chat) so
   // the unread counts and last-message times refresh.
@@ -147,6 +199,54 @@ export default function ChatInboxScreen({ navigation }: Props) {
           )
         }}
       />
+
+      {/* Sprint Q2 — direct-chat picker. Opens from the header "+ New"
+         button. Lists tenant users (admins/managers first) and starts
+         a direct conversation on tap. Server de-dupes existing 1:1s. */}
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Start a direct chat</Text>
+              <TouchableOpacity onPress={() => setPickerOpen(false)}>
+                <Text style={styles.modalClose}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            {users.length === 0 ? (
+              <View style={styles.modalCenter}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={styles.hint}>Loading team…</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={users}
+                keyExtractor={u => u.id}
+                contentContainerStyle={{ paddingBottom: spacing.lg }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.userRow}
+                    onPress={() => void startDirect(item)}
+                    disabled={creating}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.userName}>{item.name || item.email || 'User'}</Text>
+                      <Text style={styles.userMeta}>
+                        {item.role.replace(/_/g, ' ')}{item.email && item.name ? ` · ${item.email}` : ''}
+                      </Text>
+                    </View>
+                    {creating && <ActivityIndicator size="small" color={colors.primary} />}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -187,4 +287,46 @@ const styles = StyleSheet.create({
   unreadText: { ...typography.micro, color: colors.textInverse, fontWeight: '700' },
   rowMeta: { flexDirection: 'row', justifyContent: 'space-between' },
   metaText: { ...typography.small, color: colors.textMuted },
+  newBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+    marginRight: spacing.sm,
+  },
+  newBtnText: { ...typography.small, color: colors.textInverse, fontWeight: '700' },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    maxHeight: '75%',
+    paddingBottom: spacing.md,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: { ...typography.h3, color: colors.text },
+  modalClose: { ...typography.small, color: colors.primary, fontWeight: '600' },
+  modalCenter: { alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
+  hint: { ...typography.small, color: colors.textMuted, fontStyle: 'italic' },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.md,
+  },
+  userName: { ...typography.bodyB, color: colors.text },
+  userMeta: { ...typography.micro, color: colors.textMuted, textTransform: 'capitalize' },
 })
