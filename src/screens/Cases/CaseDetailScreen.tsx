@@ -38,21 +38,24 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CaseDetail'>
 
 // User-facing button labels — verbs, not statuses, because that's what
 // the FA is actually doing at the moment they tap.
+// Sprint S — button labels the FA sees for advancing TO a target status.
+// The operator flow uses verb-based labels ("Acknowledge", "Start Work",
+// "End Work") that match the aligned workflow doc, not the raw status
+// enum values.
 const ADVANCE_LABEL: Partial<Record<ServiceCaseStatus, string>> = {
-  classified:     'Mark classified',
   assigned:       'Accept',
-  // Sprint Q1 — was "Dispatch", but this is the first button the FA
-  // taps on a freshly assigned case to acknowledge + accept the
-  // workflow. "Acknowledge" reads correctly from the FA's seat.
-  dispatched:     'Acknowledge',
-  en_route:       'En-route',
+  en_route:       'Acknowledge',       // was on the retired 'dispatched' key
   on_site:        'Arrived on site',
-  in_progress:    'Start work',
-  awaiting_parts: 'Awaiting parts',
-  completed:      'Complete',
+  in_progress:    'Start Work',
+  awaiting_parts: 'Awaiting Parts',
+  on_hold:        'Pending Customer',  // new — puts case on hold, ticket flips too
+  completed:      'End Work',           // was 'Complete' — matches workflow doc
+  closed:         'Close',
+  // Retired — kept for back-compat rendering if a legacy case is opened
+  classified:     'Mark classified',
+  dispatched:     'Acknowledge',
   invoiced:       'Send invoice',
   paid:           'Mark paid',
-  closed:         'Close',
 }
 
 function ago(iso: string | null | undefined): string {

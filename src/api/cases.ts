@@ -47,27 +47,29 @@ export interface ServiceCase {
   updatedAt: string
 }
 
-// Transition map matches server/src/services/fs-state-machine.ts. Duplicated
-// on the client so we can hide impossible actions before the server rejects.
+// Sprint S — mirrors server/src/services/fs-state-machine.ts. Retired
+// states keep a legal single-hop forward path for back-compat rendering
+// of historic cases; they don't appear in day-to-day mobile flow.
 const FORWARD: Record<ServiceCaseStatus, ServiceCaseStatus[]> = {
-  logged:         ['classified', 'assigned'],
-  classified:     ['assigned'],
-  assigned:       ['dispatched', 'en_route'],
-  dispatched:     ['en_route'],
+  logged:         ['assigned'],
+  assigned:       ['en_route'],                     // Acknowledge
   en_route:       ['on_site'],
-  on_site:        ['in_progress'],
-  in_progress:    ['awaiting_parts', 'completed'],
+  on_site:        ['in_progress'],                  // Start Work
+  in_progress:    ['awaiting_parts', 'on_hold', 'completed'],
   awaiting_parts: ['in_progress'],
-  completed:      ['invoiced'],
-  invoiced:       ['paid'],
-  paid:           ['closed'],
+  on_hold:        ['in_progress', 'cancelled'],     // Pending Customer
+  completed:      ['closed'],
   closed:         [],
   cancelled:      [],
-  on_hold:        ['in_progress'],
+  // Retired — back-compat rendering only
+  classified:     ['assigned'],
+  dispatched:     ['en_route'],
+  invoiced:       ['closed'],
+  paid:           ['closed'],
   no_show:        [],
   escalated:      [],
   reassigned:     [],
-  new:            ['classified', 'assigned'],
+  new:            ['assigned'],
   scheduled:      ['en_route'],
 }
 
