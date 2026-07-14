@@ -34,6 +34,10 @@ export interface ServiceCase {
   priority: string
   status: ServiceCaseStatus
   assignedUserId: string | null
+  // Joined from GET /fs/cases so the FA sees the dispatcher-assigned
+  // agent's name on the General row (Sprint T).
+  assignedUserName?: string | null
+  assignedUserEmail?: string | null
   classificationTemplateId: string | null
   templateData: Record<string, unknown> | null
   description: string | null

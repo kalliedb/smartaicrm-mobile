@@ -15,14 +15,15 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import * as Location from 'expo-location'
 import {
-  casesApi, allowedNextStatuses,
+  casesApi,
   type ServiceCase, type ServiceCaseStatus,
 } from '@api/cases'
 import { templatesApi, type CaseTemplate } from '@api/templates'
 import { usePhotoAttach } from '@hooks/usePhotoAttach'
 import SignatureModal from './SignatureModal'
 import TemplateForm, { validateFormData } from '@components/TemplateForm'
-import TravelLabourSection, { type TravelLabour } from '@components/TravelLabourSection'
+import { type TravelLabour } from '@components/TravelLabourSection'
+import WorkflowStrip from '@components/WorkflowStrip'
 import { enqueue } from '@utils/outbox'
 
 function isNetworkError(e: unknown): boolean {
@@ -38,25 +39,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CaseDetail'>
 
 // User-facing button labels — verbs, not statuses, because that's what
 // the FA is actually doing at the moment they tap.
-// Sprint S — button labels the FA sees for advancing TO a target status.
-// The operator flow uses verb-based labels ("Acknowledge", "Start Work",
-// "End Work") that match the aligned workflow doc, not the raw status
-// enum values.
-const ADVANCE_LABEL: Partial<Record<ServiceCaseStatus, string>> = {
-  assigned:       'Accept',
-  en_route:       'Acknowledge',       // was on the retired 'dispatched' key
-  on_site:        'Arrived on site',
-  in_progress:    'Start Work',
-  awaiting_parts: 'Awaiting Parts',
-  on_hold:        'Pending Customer',  // new — puts case on hold, ticket flips too
-  completed:      'End Work',           // was 'Complete' — matches workflow doc
-  closed:         'Close',
-  // Retired — kept for back-compat rendering if a legacy case is opened
-  classified:     'Mark classified',
-  dispatched:     'Acknowledge',
-  invoiced:       'Send invoice',
-  paid:           'Mark paid',
-}
+// Sprint T — advance labels moved into WorkflowStrip.tsx (each cell
+// carries its own label alongside its ancillary controls). Retained
+// here in intent only.
 
 function ago(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -283,8 +268,6 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     )
   }
 
-  const next = allowedNextStatuses(existing.status)
-
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -303,92 +286,70 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        {/* Sprint Q2 — collapse Site / Description / Timeline into one
-           General section so the mobile layout mirrors the Case
-           Templates spec: General → Case Type → Travel & Labour. */}
-        {(existing.siteAddress || existing.description || existing.scheduledStart || existing.enRouteAt || existing.onSiteAt) && (
-          <Section title="General">
-            {existing.contactPerson && (
-              <TimelineRow label="Contact" value={existing.contactPerson} />
-            )}
-            {existing.customerPhone && (
-              <TimelineRow label="Number" value={existing.customerPhone} />
-            )}
-            {existing.siteAddress && (
-              <TimelineRow label="Site" value={existing.siteAddress} />
-            )}
-            {existing.description && (
-              <TimelineRow label="Notes" value={existing.description} />
-            )}
-            {existing.scheduledStart && (
-              <TimelineRow label="Scheduled" value={new Date(existing.scheduledStart).toLocaleString()} />
-            )}
-            {existing.enRouteAt && (
-              <TimelineRow label="En-route" value={new Date(existing.enRouteAt).toLocaleString()} />
-            )}
-            {existing.onSiteAt && (
-              <TimelineRow label="On-site" value={new Date(existing.onSiteAt).toLocaleString()} />
-            )}
-          </Section>
-        )}
+        {/* Sprint T — GENERAL section in exact operator spec order:
+           Customer · Priority · Scheduled Start · Assign to Field Agent
+           · Contact Person · Contact Number · Site Address · Brief
+           Description. Rendered read-only on mobile (edits happen on
+           the portal). */}
+        <Section title="GENERAL">
+          <TimelineRow label="Customer" value={existing.customerName} />
+          <TimelineRow
+            label="Priority"
+            value={existing.priority
+              ? existing.priority.replace(/\b\w/g, c => c.toUpperCase())
+              : '—'}
+          />
+          <TimelineRow
+            label="Scheduled Start"
+            value={existing.scheduledStart ? new Date(existing.scheduledStart).toLocaleString() : '—'}
+          />
+          <TimelineRow
+            label="Assign to Field Agent"
+            value={existing.assignedUserName || existing.assignedUserEmail || '—'}
+          />
+          <TimelineRow label="Contact Person" value={existing.contactPerson || '—'} />
+          <TimelineRow label="Contact Number" value={existing.customerPhone || '—'} />
+          <TimelineRow label="Site Address" value={existing.siteAddress || '—'} />
+          <TimelineRow label="Brief Description" value={existing.description || '—'} />
+        </Section>
 
-        {/* Case Type — schema-driven form. Renamed from "Case form" to
-           match the operator-facing spec. */}
+        {/* Sprint T — WORKFLOW section as a horizontal step strip. Each
+           cell owns its ancillary controls (GPS / time / km / hh:mm).
+           Tapping the current cell advances the status, that cell moves
+           to "done", and the next cell becomes primary. */}
+        <Section title="WORKFLOW">
+          <WorkflowStrip
+            status={existing.status}
+            transitioning={transitioning}
+            onAdvance={s => void advance(s)}
+            travelLabour={travelLabour}
+            onTravelLabourChange={setTravelLabour}
+            disabled={
+              existing.status === 'completed'
+              || existing.status === 'closed'
+              || existing.status === 'cancelled'
+            }
+          />
+        </Section>
+
+        {/* Sprint T — RESOLUTION section (was "Case Type · X"). Schema-
+           driven form for the picked template; the six generic fields
+           + case_photos + attachments are all rendered by TemplateForm. */}
         {template && (
-          <Section title={`Case Type · ${template.name}`}>
+          <Section title={`RESOLUTION · ${template.name}`}>
             <TemplateForm
               jsonSchema={template.jsonSchema}
               value={formData}
               onChange={setFormData}
               disabled={
                 existing.status === 'completed'
-                || existing.status === 'invoiced'
-                || existing.status === 'paid'
                 || existing.status === 'closed'
+                || existing.status === 'cancelled'
               }
             />
             {savingForm && (
               <Text style={styles.savingHint}>Saving…</Text>
             )}
-          </Section>
-        )}
-
-        {/* v2.0 Travel & Labour — start/end GPS, km auto-calc, timer, hours. */}
-        <Section title="Travel & Labour">
-          <TravelLabourSection
-            value={travelLabour}
-            onChange={setTravelLabour}
-            disabled={
-              existing.status === 'completed'
-              || existing.status === 'invoiced'
-              || existing.status === 'paid'
-              || existing.status === 'closed'
-            }
-          />
-        </Section>
-
-        {/* Sprint Q1 — FA Workflow (Advance). Moved up here (was after
-           Photos + Signature) so the FA can see + advance the case in
-           one glance without scrolling past 20 photos to find the
-           "Complete" button. */}
-        {next.length > 0 && (
-          <Section title="FA Workflow – Advance">
-            {next.map(s => (
-              <TouchableOpacity
-                key={s}
-                style={[styles.advanceBtn, transitioning === s && styles.advanceBtnBusy]}
-                onPress={() => void advance(s)}
-                disabled={transitioning !== null}
-              >
-                {transitioning === s ? (
-                  <ActivityIndicator color={colors.textInverse} />
-                ) : (
-                  <Text style={styles.advanceText}>
-                    {ADVANCE_LABEL[s] ?? s.replace(/_/g, ' ')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            ))}
           </Section>
         )}
 
@@ -435,8 +396,9 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           </View>
         </Section>
 
-        {/* Signature */}
-        <Section title="Customer signature">
+        {/* Sprint T — Section 4 in the spec: CUSTOMER (was "Customer
+           signature"). Signature capture only. */}
+        <Section title="CUSTOMER">
           {existing.customerSignatureUrl ? (
             <Text style={styles.body}>Captured ✓</Text>
           ) : (
