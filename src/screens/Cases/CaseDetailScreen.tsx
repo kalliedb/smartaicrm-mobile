@@ -41,7 +41,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CaseDetail'>
 const ADVANCE_LABEL: Partial<Record<ServiceCaseStatus, string>> = {
   classified:     'Mark classified',
   assigned:       'Accept',
-  dispatched:     'Dispatch',
+  // Sprint Q1 — was "Dispatch", but this is the first button the FA
+  // taps on a freshly assigned case to acknowledge + accept the
+  // workflow. "Acknowledge" reads correctly from the FA's seat.
+  dispatched:     'Acknowledge',
   en_route:       'En-route',
   on_site:        'Arrived on site',
   in_progress:    'Start work',
@@ -50,6 +53,20 @@ const ADVANCE_LABEL: Partial<Record<ServiceCaseStatus, string>> = {
   invoiced:       'Send invoice',
   paid:           'Mark paid',
   closed:         'Close',
+}
+
+function ago(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms) || ms < 0) return 'just now'
+  const s = Math.floor(ms / 1000)
+  if (s < 60)   return 'just now'
+  const m = Math.floor(s / 60)
+  if (m < 60)   return `${m} min${m === 1 ? '' : 's'} ago`
+  const h = Math.floor(m / 60)
+  if (h < 24)   return `${h} hour${h === 1 ? '' : 's'} ago`
+  const d = Math.floor(h / 24)
+  return `${d} day${d === 1 ? '' : 's'} ago`
 }
 
 async function captureGeo(): Promise<{ lat: number; lng: number } | undefined> {
@@ -268,11 +285,19 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Header */}
+        {/* Header — the case's latest status is authoritative (was
+           previously the raw lowercase enum, which looked stale after
+           the FA advanced through several transitions). Title-cased
+           and paired with an "updated X ago" hint. */}
         <View style={styles.headerCard}>
           <Text style={styles.caseNumber}>{existing.workOrderNumber}</Text>
           <Text style={styles.customer}>{existing.customerName}</Text>
-          <Text style={styles.status}>{existing.status.replace(/_/g, ' ')}</Text>
+          <Text style={styles.status}>
+            {existing.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+          </Text>
+          {existing.updatedAt && (
+            <Text style={styles.statusHint}>Updated {ago(existing.updatedAt)}</Text>
+          )}
         </View>
 
         {/* Site */}
@@ -341,6 +366,31 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           />
         </Section>
 
+        {/* Sprint Q1 — FA Workflow (Advance). Moved up here (was after
+           Photos + Signature) so the FA can see + advance the case in
+           one glance without scrolling past 20 photos to find the
+           "Complete" button. */}
+        {next.length > 0 && (
+          <Section title="FA Workflow – Advance">
+            {next.map(s => (
+              <TouchableOpacity
+                key={s}
+                style={[styles.advanceBtn, transitioning === s && styles.advanceBtnBusy]}
+                onPress={() => void advance(s)}
+                disabled={transitioning !== null}
+              >
+                {transitioning === s ? (
+                  <ActivityIndicator color={colors.textInverse} />
+                ) : (
+                  <Text style={styles.advanceText}>
+                    {ADVANCE_LABEL[s] ?? s.replace(/_/g, ' ')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </Section>
+        )}
+
         {/* Photos */}
         <Section title="Photos">
           {photos.uploaded.length > 0 ? (
@@ -401,27 +451,6 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </Section>
 
-        {/* Advance actions */}
-        {next.length > 0 && (
-          <Section title="Advance">
-            {next.map(s => (
-              <TouchableOpacity
-                key={s}
-                style={[styles.advanceBtn, transitioning === s && styles.advanceBtnBusy]}
-                onPress={() => void advance(s)}
-                disabled={transitioning !== null}
-              >
-                {transitioning === s ? (
-                  <ActivityIndicator color={colors.textInverse} />
-                ) : (
-                  <Text style={styles.advanceText}>
-                    {ADVANCE_LABEL[s] ?? s.replace(/_/g, ' ')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            ))}
-          </Section>
-        )}
       </ScrollView>
 
       <SignatureModal
@@ -472,7 +501,8 @@ const styles = StyleSheet.create({
   },
   caseNumber: { ...typography.small, color: colors.primary, fontVariant: ['tabular-nums'], marginBottom: 4 },
   customer: { ...typography.h2, color: colors.text, marginBottom: 4 },
-  status: { ...typography.small, color: colors.textMuted, textTransform: 'capitalize' },
+  status: { ...typography.small, color: colors.primary, fontWeight: '700', letterSpacing: 0.4 },
+  statusHint: { ...typography.micro, color: colors.textSubtle, marginTop: 2 },
   section: {
     backgroundColor: colors.surface,
     borderRadius: radii.md,
