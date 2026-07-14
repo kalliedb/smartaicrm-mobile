@@ -1,21 +1,22 @@
 /**
  * WorkflowStrip — horizontal step-strip for the FA's case workflow.
  *
- * Renders the whole assigned → complete lifecycle as a single row of
- * pill cards. Each cell has three states:
- *   - done     → dimmed with ✓ tick, non-interactive
- *   - current  → bright primary + tap-to-advance
- *   - future   → dim/grey + non-interactive
+ * Each cell is an ACTION (not a status). Tapping the current cell
+ * fires its action (advance status and/or capture GPS/time), that
+ * cell moves to "done", and the next cell becomes current.
  *
- * Sub-controls (Start/End GPS, Time Start/End buttons, km, HH:mm) live
- * INSIDE their owning step card so all the FA sees is one horizontal
- * timeline. When the current step's button is tapped, that cell moves
- * to "done" and the next cell becomes current — the "button removed +
- * next moves up" behaviour the operator asked for.
+ * Cell ordering + actions:
+ *   0  Assigned    — indicator (always done once case exists)
+ *   1  Acknowledge — fires assigned → en_route
+ *   2  En Route    — fires en_route → on_site;  owns Start GPS
+ *   3  On Site     — fires on_site → in_progress; owns End GPS + km
+ *   4  Start Work  — captures Time Start (no status change)
+ *   5  End Work    — fires in_progress → completed; captures Time End;
+ *                    owns Start/End HH:mm override + Total Hours
+ *   6  Complete    — fires completed → closed
  *
- * Two side branches (Awaiting Parts, Pending Customer) sit after
- * "End Work" as amber-outlined shortcuts — visible + tappable only
- * while the case is at in_progress or downstream of it.
+ * Side branches (Awaiting Parts, Pending Customer) are small amber
+ * pills after End Work; tappable only while status = in_progress.
  */
 import { useMemo } from 'react'
 import {
@@ -35,35 +36,23 @@ interface Props {
   disabled?: boolean
 }
 
-// The exact sequence + labels from the operator's workflow doc.
-// Order matters — LINEAR is the happy path; BRANCHES sit alongside.
-const LINEAR: Array<{ step: ServiceCaseStatus; label: string }> = [
-  { step: 'assigned',    label: 'Assigned' },      // start state — no advance from here on mobile
-  { step: 'en_route',    label: 'Acknowledge' },   // FA taps this on an assigned case
-  { step: 'on_site',     label: 'En Route' },      // taps to arrive
-  { step: 'in_progress', label: 'On Site' },       // "Start Work" cell — press to enter in_progress
-  { step: 'completed',   label: 'End Work' },      // press to end work → completed
-]
-const BRANCHES: Array<{ step: ServiceCaseStatus; label: string }> = [
-  { step: 'awaiting_parts', label: 'Awaiting Parts' },
-  { step: 'on_hold',        label: 'Pending Customer' },
-]
-const CLOSE: Array<{ step: ServiceCaseStatus; label: string }> = [
-  { step: 'closed', label: 'Complete' },
-]
-
-// Ordinal-position helper — done/current/future decision.
-function rank(s: ServiceCaseStatus): number {
-  switch (s) {
-    case 'assigned':       return 0
-    case 'en_route':       return 1
-    case 'on_site':        return 2
-    case 'in_progress':    return 3
-    case 'awaiting_parts': return 3   // side branch of in_progress
-    case 'on_hold':        return 3   // side branch of in_progress
-    case 'completed':      return 4
-    case 'closed':         return 5
-    default:               return -1  // logged, cancelled, retired legacy
+// ── The 7 linear cells (indices 0-6) ─────────────────────────────────
+// currentCellIdx() returns which cell the FA should act on now, based
+// on server status + captured time_start / time_end. Cells with index
+// less than current are "done"; cells with greater index are "future".
+function currentCellIdx(status: ServiceCaseStatus, tl: TravelLabour): number {
+  switch (status) {
+    case 'logged':
+    case 'assigned':       return 1
+    case 'en_route':       return 2
+    case 'on_site':        return 3
+    case 'in_progress':    return tl.time_start ? 5 : 4
+    case 'awaiting_parts': return 4
+    case 'on_hold':        return 4
+    case 'completed':      return 6
+    case 'closed':         return -1   // all done
+    case 'cancelled':      return -1
+    default:               return -1
   }
 }
 
@@ -134,262 +123,265 @@ export default function WorkflowStrip({
     derived.total_hours          !== travelLabour.total_hours
   if (drift) setTimeout(() => onTravelLabourChange(derived), 0)
 
-  const r = rank(status)
-  const cellState = (target: ServiceCaseStatus): 'done' | 'current' | 'future' => {
-    const targetRank = rank(target)
-    if (targetRank < r) return 'done'
-    if (targetRank === r) return 'current'
-    return 'future'
-  }
-  const canTapBranch = r >= 3 && status === 'in_progress'
+  const current = currentCellIdx(status, travelLabour)
 
   const stampStart = async () => {
     const g = await captureGps()
-    if (g) onTravelLabourChange({ ...travelLabour, start_gps: g, time_start: travelLabour.time_start ?? g.at })
+    if (g) onTravelLabourChange({ ...travelLabour, start_gps: g })
   }
   const stampEnd = async () => {
     const g = await captureGps()
-    if (g) onTravelLabourChange({ ...travelLabour, end_gps: g, time_end: travelLabour.time_end ?? g.at })
+    if (g) onTravelLabourChange({ ...travelLabour, end_gps: g })
   }
   const stampTimeStart = () => onTravelLabourChange({ ...travelLabour, time_start: new Date().toISOString() })
-  const stampTimeEnd   = () => onTravelLabourChange({ ...travelLabour, time_end:   new Date().toISOString() })
+  const stampTimeEnd = () => onTravelLabourChange({ ...travelLabour, time_end: new Date().toISOString() })
 
-  const renderLinearCell = ({ step, label }: { step: ServiceCaseStatus; label: string }, i: number) => {
-    const state = cellState(step)
-    // Ancillary controls per step, per the workflow doc.
-    const controls: React.ReactNode[] = []
-    if (step === 'on_site') {
-      // "Acknowledge" cell owns the Start-GPS control per the doc.
-      controls.push(
-        <TouchableOpacity key="gps-start"
-          style={[styles.subBtn, travelLabour.start_gps && styles.subBtnDone]}
-          onPress={() => void stampStart()}
-          disabled={disabled}
-        >
-          <Text style={styles.subBtnText}>{travelLabour.start_gps ? '✓ Start GPS' : 'Start GPS'}</Text>
-        </TouchableOpacity>,
-      )
-    }
-    if (step === 'in_progress') {
-      // "On Site" cell owns End-GPS + Kilometres.
-      controls.push(
-        <TouchableOpacity key="gps-end"
-          style={[styles.subBtn, travelLabour.end_gps && styles.subBtnDone]}
-          onPress={() => void stampEnd()}
-          disabled={disabled}
-        >
-          <Text style={styles.subBtnText}>{travelLabour.end_gps ? '✓ End GPS' : 'End GPS'}</Text>
-        </TouchableOpacity>,
-      )
-      controls.push(
-        <TextInput key="km"
-          style={styles.subInput}
-          value={travelLabour.kilometers_travelled != null ? String(travelLabour.kilometers_travelled) : ''}
-          onChangeText={txt => {
-            if (txt.trim() === '') {
-              onTravelLabourChange({ ...travelLabour, kilometers_travelled: null, kilometers_manual_override: false })
-              return
-            }
-            const n = parseFloat(txt)
-            onTravelLabourChange({
-              ...travelLabour,
-              kilometers_travelled: Number.isNaN(n) ? null : n,
-              kilometers_manual_override: true,
-            })
-          }}
-          placeholder="km"
-          placeholderTextColor={colors.textSubtle}
-          keyboardType="numeric"
-          editable={!disabled}
-        />,
-      )
-    }
-    if (step === 'completed') {
-      // "End Work" cell owns Time Start/End buttons + HH:mm overrides + hours.
-      controls.push(
-        <TouchableOpacity key="ts"
-          style={[styles.subBtn, travelLabour.time_start && styles.subBtnDone]}
-          onPress={stampTimeStart} disabled={disabled}
-        >
-          <Text style={styles.subBtnText}>{travelLabour.time_start ? '✓ Time Start' : 'Time Start'}</Text>
-        </TouchableOpacity>,
-      )
-      controls.push(
-        <TouchableOpacity key="te"
-          style={[styles.subBtn, travelLabour.time_end && styles.subBtnDone]}
-          onPress={stampTimeEnd} disabled={disabled}
-        >
-          <Text style={styles.subBtnText}>{travelLabour.time_end ? '✓ Time End' : 'Time End'}</Text>
-        </TouchableOpacity>,
-      )
-      controls.push(
-        <View key="hhmm" style={styles.hhmmRow}>
-          <TextInput
-            style={styles.hhmmInput}
-            value={fmtHHmm(travelLabour.time_start)}
-            onChangeText={txt => onTravelLabourChange({ ...travelLabour, time_start: parseHHmmToISO(txt) })}
-            placeholder="08:15"
-            placeholderTextColor={colors.textSubtle}
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
-            editable={!disabled}
-          />
-          <Text style={styles.hhmmSep}>/</Text>
-          <TextInput
-            style={styles.hhmmInput}
-            value={fmtHHmm(travelLabour.time_end)}
-            onChangeText={txt => onTravelLabourChange({ ...travelLabour, time_end: parseHHmmToISO(txt) })}
-            placeholder="16:30"
-            placeholderTextColor={colors.textSubtle}
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
-            editable={!disabled}
-          />
-        </View>,
-      )
-      if (travelLabour.total_hours != null) {
-        controls.push(
-          <Text key="hrs" style={styles.hoursText}>{travelLabour.total_hours.toFixed(2)} h</Text>,
-        )
-      }
-    }
+  // Cell handlers — invoked when the cell IS current + FA taps.
+  const cellActions: Record<number, () => void> = {
+    0: () => { /* Assigned is passive */ },
+    1: () => onAdvance('en_route'),
+    2: () => onAdvance('on_site'),
+    3: () => onAdvance('in_progress'),
+    4: stampTimeStart,
+    5: () => { stampTimeEnd(); onAdvance('completed') },
+    6: () => onAdvance('closed'),
+  }
 
-    const clickable = state === 'current' && !disabled
+  // Labels for cell content.
+  const cells: Array<{ label: string; kind?: 'primary' | 'passive' }> = [
+    { label: 'Assigned',    kind: 'passive' },
+    { label: 'Acknowledge', kind: 'primary' },
+    { label: 'En Route',    kind: 'primary' },
+    { label: 'On Site',     kind: 'primary' },
+    { label: 'Start Work',  kind: 'primary' },
+    { label: 'End Work',    kind: 'primary' },
+    { label: 'Complete',    kind: 'primary' },
+  ]
+
+  const canTapBranch = status === 'in_progress' || status === 'awaiting_parts' || status === 'on_hold'
+
+  const renderCell = (idx: number) => {
+    const c = cells[idx]
+    const state: 'done' | 'current' | 'future' =
+      current === -1 || idx < current ? 'done'
+      : idx === current ? 'current'
+      : 'future'
+    const clickable = state === 'current' && !disabled && c.kind !== 'passive'
+
+    // Which transition is being fired right now? Used to show a spinner
+    // in the correct cell during status transitions.
+    const busyMap: Record<number, ServiceCaseStatus> = {
+      1: 'en_route', 2: 'on_site', 3: 'in_progress', 5: 'completed', 6: 'closed',
+    }
+    const isBusy = busyMap[idx] === transitioning
+
     return (
-      <View key={step + '-' + i} style={[styles.cell, cellStyleFor(state)]}>
+      <View key={idx} style={[styles.cell, cellStyle(state)]}>
         <TouchableOpacity
           activeOpacity={clickable ? 0.7 : 1}
-          onPress={clickable ? () => onAdvance(step) : undefined}
-          style={styles.cellHead}
+          onPress={clickable ? cellActions[idx] : undefined}
           disabled={!clickable}
+          style={styles.cellHead}
         >
-          {transitioning === step ? (
-            <ActivityIndicator color={colors.textInverse} size="small" />
+          {isBusy ? (
+            <ActivityIndicator color={state === 'current' ? colors.textInverse : colors.primary} size="small" />
           ) : (
-            <Text style={cellLabelStyleFor(state)}>
-              {state === 'done' ? '✓ ' : ''}{label}
+            <Text style={cellLabelStyle(state)} numberOfLines={1}>
+              {state === 'done' ? '✓ ' : ''}{c.label}
             </Text>
           )}
         </TouchableOpacity>
-        {controls.length > 0 && (
-          <View style={styles.subControls}>{controls}</View>
+
+        {/* Ancillary controls per cell — always visible so the FA can
+           capture GPS / km / time even after the status has moved on. */}
+        {idx === 2 && (
+          <TouchableOpacity
+            style={[styles.subBtn, travelLabour.start_gps && styles.subBtnDone]}
+            onPress={() => void stampStart()} disabled={disabled}
+          >
+            <Text style={subBtnLabel(state)}>{travelLabour.start_gps ? '✓ Start GPS' : 'Start GPS'}</Text>
+          </TouchableOpacity>
+        )}
+        {idx === 3 && (
+          <>
+            <TouchableOpacity
+              style={[styles.subBtn, travelLabour.end_gps && styles.subBtnDone]}
+              onPress={() => void stampEnd()} disabled={disabled}
+            >
+              <Text style={subBtnLabel(state)}>{travelLabour.end_gps ? '✓ End GPS' : 'End GPS'}</Text>
+            </TouchableOpacity>
+            <TextInput
+              style={subInputStyle(state)}
+              value={travelLabour.kilometers_travelled != null ? String(travelLabour.kilometers_travelled) : ''}
+              onChangeText={txt => {
+                if (txt.trim() === '') {
+                  onTravelLabourChange({ ...travelLabour, kilometers_travelled: null, kilometers_manual_override: false })
+                  return
+                }
+                const n = parseFloat(txt)
+                onTravelLabourChange({
+                  ...travelLabour,
+                  kilometers_travelled: Number.isNaN(n) ? null : n,
+                  kilometers_manual_override: true,
+                })
+              }}
+              placeholder="km"
+              placeholderTextColor={colors.textSubtle}
+              keyboardType="numeric" editable={!disabled}
+            />
+          </>
+        )}
+        {idx === 4 && travelLabour.time_start && (
+          <Text style={subCaption(state)}>{fmtHHmm(travelLabour.time_start)}</Text>
+        )}
+        {idx === 5 && (
+          <>
+            {travelLabour.time_end && <Text style={subCaption(state)}>{fmtHHmm(travelLabour.time_end)}</Text>}
+            <View style={styles.hhmmRow}>
+              <TextInput
+                style={hhmmInput(state)}
+                value={fmtHHmm(travelLabour.time_start)}
+                onChangeText={txt => onTravelLabourChange({ ...travelLabour, time_start: parseHHmmToISO(txt) })}
+                placeholder="08:15" placeholderTextColor={colors.textSubtle}
+                keyboardType="numbers-and-punctuation" maxLength={5} editable={!disabled}
+              />
+              <Text style={subCaption(state)}>/</Text>
+              <TextInput
+                style={hhmmInput(state)}
+                value={fmtHHmm(travelLabour.time_end)}
+                onChangeText={txt => onTravelLabourChange({ ...travelLabour, time_end: parseHHmmToISO(txt) })}
+                placeholder="16:30" placeholderTextColor={colors.textSubtle}
+                keyboardType="numbers-and-punctuation" maxLength={5} editable={!disabled}
+              />
+            </View>
+            {travelLabour.total_hours != null && (
+              <Text style={subCaption(state)}>{travelLabour.total_hours.toFixed(2)} h</Text>
+            )}
+          </>
         )}
       </View>
     )
   }
 
-  const renderBranchCell = ({ step, label }: { step: ServiceCaseStatus; label: string }) => {
-    const state = cellState(step)
-    const clickable = canTapBranch && state !== 'done' && !disabled
+  const renderBranch = (label: string, target: ServiceCaseStatus) => {
+    const isDone = (target === 'awaiting_parts' && status === 'awaiting_parts')
+                || (target === 'on_hold' && status === 'on_hold')
+    const clickable = canTapBranch && !isDone && !disabled
     return (
-      <View key={step} style={[styles.cellBranch, state === 'done' && styles.cellDone]}>
-        <TouchableOpacity
-          activeOpacity={clickable ? 0.7 : 1}
-          onPress={clickable ? () => onAdvance(step) : undefined}
-          style={styles.cellHead}
-          disabled={!clickable}
-        >
-          {transitioning === step ? (
-            <ActivityIndicator color={colors.warning} size="small" />
-          ) : (
-            <Text style={styles.cellBranchLabel}>
-              {state === 'done' ? '✓ ' : ''}{label}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        key={target}
+        style={[styles.branchPill, isDone && styles.branchPillDone]}
+        onPress={clickable ? () => onAdvance(target) : undefined}
+        disabled={!clickable}
+      >
+        {transitioning === target ? (
+          <ActivityIndicator size="small" color={colors.warning} />
+        ) : (
+          <Text style={styles.branchPillText}>{isDone ? '✓ ' : ''}{label}</Text>
+        )}
+      </TouchableOpacity>
     )
   }
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.strip}
-    >
-      {LINEAR.map(renderLinearCell)}
-      {BRANCHES.map(renderBranchCell)}
-      {CLOSE.map(renderLinearCell)}
-    </ScrollView>
+    <View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        {cells.map((_, i) => renderCell(i))}
+      </ScrollView>
+      <View style={styles.branchRow}>
+        {renderBranch('Awaiting Parts', 'awaiting_parts')}
+        {renderBranch('Pending Customer', 'on_hold')}
+      </View>
+    </View>
   )
 }
 
-function cellStyleFor(state: 'done' | 'current' | 'future') {
+// ── Style helpers ────────────────────────────────────────────────────
+function cellStyle(state: 'done' | 'current' | 'future') {
   return state === 'current' ? styles.cellCurrent
        : state === 'done'    ? styles.cellDone
        : styles.cellFuture
 }
-function cellLabelStyleFor(state: 'done' | 'current' | 'future') {
-  return state === 'current' ? styles.cellLabelCurrent
-       : state === 'done'    ? styles.cellLabelDone
-       : styles.cellLabelFuture
+function cellLabelStyle(state: 'done' | 'current' | 'future') {
+  return state === 'current' ? styles.labelCurrent
+       : state === 'done'    ? styles.labelDone
+       : styles.labelFuture
+}
+function subBtnLabel(state: 'done' | 'current' | 'future') {
+  return state === 'current' ? styles.subBtnTextCurrent : styles.subBtnText
+}
+function subInputStyle(state: 'done' | 'current' | 'future') {
+  return state === 'current' ? [styles.subInput, styles.subInputCurrent] : styles.subInput
+}
+function hhmmInput(state: 'done' | 'current' | 'future') {
+  return state === 'current' ? [styles.hhmmInputBase, styles.hhmmInputCurrent] : styles.hhmmInputBase
+}
+function subCaption(state: 'done' | 'current' | 'future') {
+  return state === 'current' ? styles.subCaptionCurrent : styles.subCaption
 }
 
-const CELL_MIN = 130
+const CELL_MIN = 92
 const styles = StyleSheet.create({
   strip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
     flexDirection: 'row',
     alignItems: 'stretch',
   },
   cell: {
     minWidth: CELL_MIN,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    padding: spacing.sm,
-    gap: spacing.sm,
-    justifyContent: 'flex-start',
-  },
-  cellHead: { paddingVertical: spacing.xs, alignItems: 'center' },
-  cellCurrent: { backgroundColor: colors.primary, borderColor: colors.primary },
-  cellDone:    { backgroundColor: colors.surface, borderColor: colors.border, opacity: 0.6 },
-  cellFuture:  { backgroundColor: colors.surfaceMuted, borderColor: colors.border, opacity: 0.5 },
-  cellLabelCurrent: { ...typography.small, color: colors.textInverse, fontWeight: '700', textAlign: 'center' },
-  cellLabelDone:    { ...typography.small, color: colors.textMuted, textDecorationLine: 'line-through', textAlign: 'center' },
-  cellLabelFuture:  { ...typography.small, color: colors.textMuted, textAlign: 'center' },
-  cellBranch: {
-    minWidth: CELL_MIN,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    backgroundColor: colors.surface,
-    padding: spacing.sm,
-    justifyContent: 'center',
-  },
-  cellBranchLabel: { ...typography.small, color: colors.warning, fontWeight: '600', textAlign: 'center' },
-  subControls: { gap: spacing.xs },
-  subBtn: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
     borderRadius: radii.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.textInverse,
-    alignItems: 'center',
-  },
-  subBtnDone: { backgroundColor: 'rgba(255,255,255,0.15)' },
-  subBtnText: { ...typography.micro, color: colors.textInverse, fontWeight: '600' },
-  subInput: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.sm,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    color: colors.textInverse,
-    ...typography.small,
-    textAlign: 'center',
-  },
-  hhmmRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  hhmmInput: {
-    flex: 1,
+    borderWidth: 1,
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
-    borderRadius: radii.sm,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    color: colors.textInverse,
-    ...typography.micro,
-    textAlign: 'center',
+    gap: 4,
+    justifyContent: 'flex-start',
   },
-  hhmmSep: { ...typography.micro, color: colors.textInverse, opacity: 0.6 },
-  hoursText: { ...typography.small, color: colors.textInverse, fontWeight: '700', textAlign: 'center' },
+  cellHead: { paddingVertical: 4, alignItems: 'center' },
+  cellCurrent: { backgroundColor: colors.primary, borderColor: colors.primary },
+  cellDone:    { backgroundColor: colors.surface, borderColor: colors.border, opacity: 0.55 },
+  cellFuture:  { backgroundColor: colors.surfaceMuted, borderColor: colors.border, opacity: 0.45 },
+  labelCurrent: { ...typography.micro, color: colors.textInverse, fontWeight: '700', textAlign: 'center' },
+  labelDone:    { ...typography.micro, color: colors.textMuted, textDecorationLine: 'line-through', textAlign: 'center' },
+  labelFuture:  { ...typography.micro, color: colors.textMuted, textAlign: 'center' },
+  subBtn: {
+    paddingVertical: 4, paddingHorizontal: 6,
+    borderRadius: radii.sm, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border, alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  subBtnDone: { backgroundColor: 'rgba(255,255,255,0.15)' },
+  subBtnText:        { ...typography.micro, color: colors.textMuted, fontSize: 10 },
+  subBtnTextCurrent: { ...typography.micro, color: colors.textInverse, fontWeight: '600', fontSize: 10 },
+  subInput: {
+    paddingHorizontal: 6, paddingVertical: 4,
+    borderRadius: radii.sm, backgroundColor: 'rgba(0,0,0,0.05)',
+    color: colors.text, textAlign: 'center', fontSize: 11,
+  },
+  subInputCurrent: { backgroundColor: 'rgba(255,255,255,0.15)', color: colors.textInverse },
+  hhmmRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  hhmmInputBase: {
+    flex: 1, paddingHorizontal: 4, paddingVertical: 2,
+    borderRadius: radii.sm, backgroundColor: 'rgba(0,0,0,0.05)',
+    color: colors.text, textAlign: 'center', fontSize: 10,
+  },
+  hhmmInputCurrent: { backgroundColor: 'rgba(255,255,255,0.15)', color: colors.textInverse },
+  subCaption:        { fontSize: 10, color: colors.textMuted, textAlign: 'center' },
+  subCaptionCurrent: { fontSize: 10, color: colors.textInverse, opacity: 0.8, textAlign: 'center', fontWeight: '600' },
+  branchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    justifyContent: 'flex-end',
+  },
+  branchPill: {
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1, borderColor: colors.warning,
+    backgroundColor: 'transparent',
+  },
+  branchPillDone: { backgroundColor: 'rgba(255,193,7,0.15)' },
+  branchPillText: { ...typography.micro, color: colors.warning, fontWeight: '600' },
 })

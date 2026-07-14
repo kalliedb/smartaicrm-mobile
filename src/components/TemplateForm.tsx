@@ -120,13 +120,36 @@ export default function TemplateForm({ jsonSchema, value, onChange, disabled }: 
     onChange({ ...value, [key]: next })
   }
 
+  // Sprint V — fields must render in the exact operator spec order
+  // (Status, Summary, Category, Line Items, Test, Photos, Attachments)
+  // for the six shared generic fields. PostgreSQL jsonb doesn't
+  // preserve key order — the server round-trip returns properties
+  // alphabetically ("attachments, case_line_items, …"), which is not
+  // what the operator wants. Enforce order client-side.
+  const FIELD_ORDER: string[] = [
+    'case_outcome_status',
+    'case_outcome_summary',
+    'case_resolution_category',
+    'case_line_items',
+    'case_test_performed',
+    'case_photos',
+    'attachments',
+  ]
+  const allKeys = Object.keys(schema.properties)
+  const orderedKeys = [
+    ...FIELD_ORDER.filter(k => allKeys.includes(k)),
+    // Everything else (e.g. Install/De-install's structured extras)
+    // sorted alphabetically after the six generic fields.
+    ...allKeys.filter(k => !FIELD_ORDER.includes(k)).sort(),
+  ]
+
   return (
     <View style={styles.wrap}>
-      {Object.entries(schema.properties).map(([key, field]) => (
+      {orderedKeys.map(key => (
         <Field
           key={key}
           fieldKey={key}
-          field={field}
+          field={schema.properties[key]}
           value={value[key]}
           required={(schema.required ?? []).includes(key)}
           onChange={next => setField(key, next)}
