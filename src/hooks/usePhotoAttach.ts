@@ -13,9 +13,13 @@ import { uploadDocument, type UploadedDocument } from '@api/documents'
 
 interface Options {
   caseId: string
+  // Sprint X — lets a second usage of this hook (Attachments section)
+  // tag uploads with a different entityType so the portal can filter
+  // photos vs attachments. Defaults to 'fs_work_order' for back-compat.
+  entityType?: string
 }
 
-export function usePhotoAttach({ caseId }: Options) {
+export function usePhotoAttach({ caseId, entityType }: Options) {
   const [uploaded, setUploaded] = useState<UploadedDocument[]>([])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +35,7 @@ export function usePhotoAttach({ caseId }: Options) {
         uri: asset.uri,
         name,
         mimeType: asset.mimeType ?? 'image/jpeg',
-        entityType: 'fs_work_order',
+        entityType: entityType ?? 'fs_work_order',
         entityId: caseId,
         module: 'field_services',
       })
@@ -41,7 +45,7 @@ export function usePhotoAttach({ caseId }: Options) {
     } finally {
       setUploading(false)
     }
-  }, [caseId])
+  }, [caseId, entityType])
 
   const pickFromCamera = useCallback(async () => {
     setError(null)

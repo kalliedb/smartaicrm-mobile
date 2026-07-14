@@ -158,7 +158,14 @@ export default function WorkflowStrip({
     { label: 'Complete',    kind: 'primary' },
   ]
 
-  const canTapBranch = status === 'in_progress' || status === 'awaiting_parts' || status === 'on_hold'
+  // Sprint X — Awaiting Parts + Pending Customer are any-time detours;
+  // FA can flip a case into either from any live state (assigned →
+  // completed). Only truly terminal states hide the branches.
+  const LIVE_STATES: ServiceCaseStatus[] = [
+    'logged', 'assigned', 'en_route', 'on_site',
+    'in_progress', 'awaiting_parts', 'on_hold',
+  ]
+  const canTapBranch = LIVE_STATES.includes(status)
 
   const renderCell = (idx: number) => {
     const c = cells[idx]

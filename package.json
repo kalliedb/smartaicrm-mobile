@@ -1,6 +1,6 @@
 {
   "name": "aivera-field",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "Aivera Field — mobile app for SA field technicians. Talks to api.smartaicrm.co.za.",
   "main": "index.js",

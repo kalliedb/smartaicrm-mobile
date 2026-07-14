@@ -2,7 +2,7 @@
   "expo": {
     "name": "Aivera Field",
     "slug": "aivera-field",
-    "version": "0.1.12",
+    "version": "0.1.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "aiverafield",

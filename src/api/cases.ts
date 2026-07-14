@@ -60,8 +60,9 @@ const FORWARD: Record<ServiceCaseStatus, ServiceCaseStatus[]> = {
   en_route:       ['on_site'],
   on_site:        ['in_progress'],                  // Start Work
   in_progress:    ['awaiting_parts', 'on_hold', 'completed'],
-  awaiting_parts: ['in_progress'],
-  on_hold:        ['in_progress', 'cancelled'],     // Pending Customer
+  // Sprint X — Awaiting Parts + Pending Customer are any-time detours.
+  awaiting_parts: ['in_progress', 'completed'],
+  on_hold:        ['in_progress', 'completed', 'cancelled'],
   completed:      ['closed'],
   closed:         [],
   cancelled:      [],

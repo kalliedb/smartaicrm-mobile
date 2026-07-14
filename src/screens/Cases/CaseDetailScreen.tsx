@@ -83,6 +83,10 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
   const [savingForm, setSavingForm] = useState(false)
   const [travelLabour, setTravelLabour] = useState<TravelLabour>({})
   const photos = usePhotoAttach({ caseId })
+  // Sprint X — separate attachment stream, distinguished by entityType
+  // so the portal can filter photos vs attachments. Same underlying
+  // capture + upload flow.
+  const attachments = usePhotoAttach({ caseId, entityType: 'fs_case_attachment' })
 
   const load = useCallback(async () => {
     setError(null)
@@ -399,6 +403,50 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
               disabled={photos.uploading}
             >
               <Text style={styles.sectionBtnGhostText}>Pick from gallery</Text>
+            </TouchableOpacity>
+          </View>
+        </Section>
+
+        {/* Sprint X — Attachments section (any file), sits right after
+           Photos per the spec. Reuses the photo picker for now (native
+           doc-picker lands with the next build cycle); files land under
+           entityType='fs_case_attachment' so the portal can filter. */}
+        <Section title="Attachments">
+          {attachments.uploaded.length > 0 ? (
+            <View style={styles.photoGrid}>
+              {attachments.uploaded.map(p => (
+                <View key={p.id} style={styles.photoThumb}>
+                  {p.fileUrl.startsWith('http') ? (
+                    <Image source={{ uri: p.fileUrl }} style={styles.photoImg} />
+                  ) : (
+                    <View style={styles.photoStub}>
+                      <Text style={styles.photoStubText}>legacy</Text>
+                    </View>
+                  )}
+                  <Text style={styles.photoName} numberOfLines={1}>{p.name}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.hint}>No attachments yet.</Text>
+          )}
+          {attachments.error && <Text style={styles.errorInline}>{attachments.error}</Text>}
+          <View style={styles.rowBtns}>
+            <TouchableOpacity
+              style={[styles.sectionBtn, attachments.uploading && styles.btnBusy]}
+              onPress={() => void attachments.pickFromCamera()}
+              disabled={attachments.uploading}
+            >
+              <Text style={styles.sectionBtnText}>
+                {attachments.uploading ? 'Uploading…' : 'Attach — camera'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sectionBtnGhost, attachments.uploading && styles.btnBusy]}
+              onPress={() => void attachments.pickFromLibrary()}
+              disabled={attachments.uploading}
+            >
+              <Text style={styles.sectionBtnGhostText}>Attach — from gallery</Text>
             </TouchableOpacity>
           </View>
         </Section>
