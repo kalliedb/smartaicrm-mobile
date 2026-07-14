@@ -359,13 +359,15 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
             <View style={styles.photoGrid}>
               {photos.uploaded.map(p => (
                 <View key={p.id} style={styles.photoThumb}>
-                  {/* stub:// URIs are placeholders — no preview possible until
-                     real cloud storage lands (backlog task #48). Show a chip. */}
+                  {/* Sprint U — R2 storage means every fileUrl is a real
+                     https://cdn.aivera.solutions/... URL. Legacy stub://
+                     rows from before Sprint U keep their placeholder
+                     branch so old test data doesn't crash the grid. */}
                   {p.fileUrl.startsWith('http') ? (
                     <Image source={{ uri: p.fileUrl }} style={styles.photoImg} />
                   ) : (
                     <View style={styles.photoStub}>
-                      <Text style={styles.photoStubText}>uploaded</Text>
+                      <Text style={styles.photoStubText}>legacy</Text>
                     </View>
                   )}
                   <Text style={styles.photoName} numberOfLines={1}>{p.name}</Text>
