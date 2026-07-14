@@ -175,14 +175,12 @@ function Field({ fieldKey, field, value, required, onChange, disabled }: {
     </Text>
   )
 
-  // ─── Photo array (format: uri) — redirect to Photos section ──────
+  // ─── Photo / attachment arrays — completely hidden inside RESOLUTION.
+  // The standalone Photos section owns capture; showing a redirect hint
+  // for case_photos + attachments only clutters the RESOLUTION section
+  // (Sprint V operator feedback).
   if (field.type === 'array' && field.items?.format === 'uri') {
-    return (
-      <View style={styles.row}>
-        {labelNode}
-        <Text style={styles.hint}>Attach photos in the Photos section above.</Text>
-      </View>
-    )
+    return null
   }
 
   // ─── Nested object (gps_coordinates etc.) — captured elsewhere ──

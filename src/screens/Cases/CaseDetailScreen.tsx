@@ -161,9 +161,14 @@ export default function CaseDetailScreen({ route, navigation }: Props) {
     if (next === 'completed' && template) {
       const localErrors = validateFormData(template.jsonSchema, formData)
       if (localErrors.length > 0) {
+        // Sprint V — surface the field names verbatim so the FA can
+        // see WHICH input is empty instead of a generic "dependency"
+        // wall. validateFormData already returns humanised messages.
         Alert.alert(
-          'Fields required',
-          localErrors.slice(0, 5).join('\n') + (localErrors.length > 5 ? '\n…' : ''),
+          "Can't End Work — missing fields",
+          localErrors.slice(0, 6).join('\n')
+            + (localErrors.length > 6 ? `\n…and ${localErrors.length - 6} more` : '')
+            + '\n\nScroll up to the RESOLUTION section and fill them in.',
         )
         return
       }
